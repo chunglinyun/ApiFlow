@@ -16,5 +16,5 @@
 
 .claude
 .idea
-/bin
-/obj
+*/bin
+*/obj
