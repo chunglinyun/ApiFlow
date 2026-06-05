@@ -1,0 +1,27 @@
+@BlazzPay.Api_HostAddress = http://localhost:5296
+
+POST {{BlazzPay.Api_HostAddress}}/api/blazzpay/qris
+Content-Type: application/json
+
+{
+  "transactionId": "250211830981905tyqY",
+  "username": "ultraman001",
+  "amount": "150000"
+}
+
+###
+
+POST {{BlazzPay.Api_HostAddress}}/api/blazzpay/qris/status
+Content-Type: application/json
+
+{
+  "transactionId": "250211830981905tyqY",
+  "clientReference": "2502111000000001"
+}
+
+###
+
+GET {{BlazzPay.Api_HostAddress}}/api/blazzpay/balance
+Accept: application/json
+
+###

@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="BlazzPay.Api.Tests/BlazzPay.Api.Tests.csproj" />
+  <Project Path="BlazzPay.Api/BlazzPay.Api.csproj" />
+</Solution>
