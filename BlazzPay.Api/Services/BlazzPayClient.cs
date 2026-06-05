@@ -136,7 +136,18 @@ public sealed class BlazzPayClient : IBlazzPayClient
         request.Headers.Add("client-secret", _options.ClientSecret);
         request.Content = new FormUrlEncodedContent([]);
 
-        var tokenResponse = await SendBlazzPayAsync<AccessTokenResponse>(request, cancellationToken);
+        AccessTokenResponse tokenResponse;
+        try
+        {
+            tokenResponse = await SendBlazzPayAsync<AccessTokenResponse>(request, cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to obtain BlazzPay access token");
+            _memoryCache.Remove(AccessTokenCacheKey);
+            throw;
+        }
+
         var expiresIn = ParseExpiresIn(tokenResponse.ExpiresIn);
         var cacheDuration = TimeSpan.FromSeconds(Math.Max(1, expiresIn - _options.TokenRefreshSkewSeconds));
 
@@ -154,29 +165,24 @@ public sealed class BlazzPayClient : IBlazzPayClient
                 ? await request.Content.ReadAsStringAsync(cancellationToken)
                 : "(none)";
 
-            _logger.LogInformation(
-                "BlazzPay request: {Method} {Uri}\nHeaders: {Headers}\nBody: {Body}",
+            _logger.LogWarning(
+                ">>> BlazzPay REQUEST: {Method} {Uri}\n--- Request Headers ---\n{Headers}\n--- Content Headers ---\n{ContentHeaders}\n--- Body ---\n{Body}",
                 request.Method,
                 request.RequestUri,
                 request.Headers.ToString().TrimEnd(),
+                request.Content?.Headers.ToString().TrimEnd() ?? "(none)",
                 requestBody);
 
             using var response = await _httpClient.SendAsync(request, cancellationToken);
             var responseJson = await response.Content.ReadAsStringAsync(cancellationToken);
 
-            _logger.LogInformation(
-                "BlazzPay response: HTTP {StatusCode}\nHeaders: {Headers}\nBody: {ResponseJson}",
+            _logger.LogWarning(
+                "<<< BlazzPay RESPONSE: HTTP {StatusCode}\n--- Response Headers ---\n{Headers}\n--- Content Headers ---\n{ContentHeaders}\n--- Body ---\n{ResponseJson}",
                 (int)response.StatusCode,
                 response.Headers.ToString().TrimEnd(),
+                response.Content.Headers.ToString().TrimEnd(),
                 responseJson);
-
-            if (!ValidateJsonFormat(responseJson))
-            {
-                throw new BlazzPayApiException(
-                    BlazzPayStringDefinition.Unknown,
-                    "BlazzPay response is not valid JSON.");
-            }
-
+            
             if (!response.IsSuccessStatusCode)
             {
                 _logger.LogError(
@@ -189,6 +195,13 @@ public sealed class BlazzPayClient : IBlazzPayClient
                     $"BlazzPay API returned HTTP {(int)response.StatusCode}.");
             }
 
+            if (!ValidateJsonFormat(responseJson))
+            {
+                throw new BlazzPayApiException(
+                    BlazzPayStringDefinition.Unknown,
+                    "BlazzPay response is not valid JSON.");
+            }
+            
             return JsonSerializer.Deserialize<TResponse>(responseJson, JsonSerializerOptions)
                 ?? throw new BlazzPayApiException(
                     BlazzPayStringDefinition.Unknown,
