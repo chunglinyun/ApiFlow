@@ -8,8 +8,8 @@ public static class BlazzPayCrypto
     public static string DecryptAes128CbcPkcs7(string encryptedValue, string key, string iv)
     {
         var encryptedBytes = Convert.FromBase64String(encryptedValue);
-        var keyBytes = Encoding.UTF8.GetBytes(key);
-        var ivBytes = Encoding.UTF8.GetBytes(iv);
+        var keyBytes = Convert.FromBase64String(key);
+        var ivBytes = Convert.FromBase64String(iv);
 
         using var aes = Aes.Create();
         aes.KeySize = 128;
