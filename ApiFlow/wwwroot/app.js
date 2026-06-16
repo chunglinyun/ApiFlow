@@ -360,6 +360,7 @@ function renderNode(node) {
   if (node.kind === "transform") root.classList.add("transform");
   root.style.left = node.x + "px";
   root.style.top = node.y + "px";
+  if (node.width) root.style.width = node.width + "px";
   if (node.result) {
     if (node.result.running) root.classList.add("running");
     else if (node.result.error || node.result.status === 0 || node.result.status >= 400) root.classList.add("err");
@@ -386,7 +387,32 @@ function renderNode(node) {
   if (node.result) body.appendChild(buildResult(node));
 
   root.appendChild(body);
+
+  // Drag handle (bottom-right) to resize the node's width.
+  const rz = el("div", { class: "node-resize", title: "Drag to resize width" });
+  rz.addEventListener("pointerdown", (e) => startNodeResize(e, node, root));
+  root.appendChild(rz);
+
   return root;
+}
+
+function startNodeResize(e, node, root) {
+  e.preventDefault();
+  e.stopPropagation();
+  const startX = e.clientX;
+  const startW = root.offsetWidth;
+  function move(ev) {
+    node.width = Math.max(260, Math.min(820, startW + (ev.clientX - startX)));
+    root.style.width = node.width + "px";
+    drawWires();
+  }
+  function up() {
+    document.removeEventListener("pointermove", move);
+    document.removeEventListener("pointerup", up);
+    save();
+  }
+  document.addEventListener("pointermove", move);
+  document.addEventListener("pointerup", up);
 }
 
 function buildRequestBody(node, body) {
@@ -576,9 +602,7 @@ function buildOutputsSection(node) {
           [el("option", { value: "" }, "▾key")].concat(paths.map((p) => el("option", { value: p, ...(p === pin.path ? { selected: "selected" } : {}) }, p))))
       : null;
     const row = el("div", { class: "pin-row output" }, [
-      el("input", { class: "pin-name", placeholder: "name", value: pin.name, spellcheck: "false",
-        oninput: (e) => { pin.name = e.target.value; scheduleSave(); } }),
-      el("input", { class: "pin-extra", placeholder: "response path", value: pin.path, spellcheck: "false",
+      el("input", { class: "pin-extra path-out", placeholder: "response path (e.g. data.token)", value: pin.path, spellcheck: "false",
         oninput: (e) => { pin.path = e.target.value; scheduleSave(); } }),
       picker,
       (val !== undefined && val !== null)
@@ -591,9 +615,9 @@ function buildOutputsSection(node) {
   });
   return el("div", { class: "section" }, [
     el("div", { class: "section-title" }, [
-      "Outputs  ⟨response path⟩",
+      "Outputs  ⟨response path → {{key}}⟩",
       el("button", { class: "mini-btn", text: "+ output",
-        onclick: () => { node.outputs.push({ id: uid("p"), name: "", path: "" }); renderAll(); save(); } }),
+        onclick: () => { node.outputs.push({ id: uid("p"), path: "" }); renderAll(); save(); } }),
     ]),
     list,
   ]);
@@ -768,11 +792,20 @@ function startNodeDrag(e, node, root) {
   document.addEventListener("pointerup", up);
 }
 
-// A wire's variable name (used as {{name}}) defaults to the upstream output pin's name.
+// A wire's variable name (used as {{name}}) is the last segment of the source output's
+// response path (e.g. "json.accessToken" → "accessToken"); transform outputs fall back to "out".
 function deriveWireName(fromNodeId, fromPinId) {
   const src = byId(fromNodeId);
   const pin = src && (src.outputs || []).find((o) => o.id === fromPinId);
-  const raw = pin && pin.name ? pin.name : "value";
+  let raw = "value";
+  if (pin) {
+    if (pin.path) {
+      const segs = String(pin.path).replace(/\[(\d+)\]/g, ".$1").split(".").filter(Boolean);
+      if (segs.length) raw = segs[segs.length - 1];
+    } else if (pin.name) {
+      raw = pin.name;
+    }
+  }
   return raw.replace(/[^\w$]/g, "") || "value";
 }
 // Ensure the name is unique among wires already entering the target node.
@@ -1131,7 +1164,7 @@ function save() {
       id: n.id, kind: n.kind || "request", title: n.title,
       method: n.method, path: n.path, headers: n.headers, fields: n.fields || [], body: n.body || "",
       algo: n.algo, key: n.key, outEncoding: n.outEncoding,
-      inputs: n.inputs, outputs: n.outputs, x: n.x, y: n.y,
+      inputs: n.inputs, outputs: n.outputs, x: n.x, y: n.y, width: n.width,
     })),
     wires,
   };
@@ -1168,11 +1201,11 @@ function exportWorkflow() {
       id: n.id, kind: n.kind || "request", title: n.title,
       method: n.method, path: n.path, headers: n.headers, fields: n.fields || [], body: n.body || "",
       algo: n.algo, key: n.key, outEncoding: n.outEncoding,
-      inputs: n.inputs, outputs: n.outputs, x: n.x, y: n.y,
+      inputs: n.inputs, outputs: n.outputs, x: n.x, y: n.y, width: n.width,
     })),
     wires,
   };
-  
+
   const json = JSON.stringify(data, null, 2);
   const blob = new Blob([json], { type: "application/json" });
   const url = URL.createObjectURL(blob);
@@ -1271,11 +1304,21 @@ function init() {
     btn.addEventListener("click", () => addTransform(btn.getAttribute("data-transform")));
   });
 
-  // Remember the last focused value field so generators can target it.
+  // Remember the last focused value field so generators can target it; redraw wires since a
+  // focused input grows to a full-width line (shifting pin positions).
   document.addEventListener("focusin", (e) => {
     const t = e.target;
     if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA") && t.closest && t.closest(".node")) {
       lastField = t;
+      if (t.tagName === "INPUT") t.classList.add("growing");
+      drawWires();
+    }
+  });
+  document.addEventListener("focusout", (e) => {
+    const t = e.target;
+    if (t && t.closest && t.closest(".node")) {
+      t.classList.remove("growing");
+      drawWires();
     }
   });
   document.querySelectorAll(".gen-item").forEach((btn) => {

@@ -166,7 +166,7 @@ input:focus, select:focus, textarea:focus {
 /* ---------- Node ---------- */
 .node {
   position: absolute;
-  width: 320px;
+  width: 340px;
   background: var(--bg-node);
   border: 1px solid var(--border-strong);
   border-radius: var(--radius);
@@ -174,6 +174,18 @@ input:focus, select:focus, textarea:focus {
   font-size: 13px;
   z-index: 2;
 }
+.node-resize {
+  position: absolute;
+  right: 3px;
+  bottom: 3px;
+  width: 16px;
+  height: 16px;
+  cursor: ew-resize;
+  z-index: 4;
+  opacity: 0.5;
+  background: linear-gradient(135deg, transparent 45%, var(--border-strong) 45%, var(--border-strong) 56%, transparent 56%);
+}
+.node-resize:hover { opacity: 1; }
 .node.running { border-color: var(--warn); }
 .node.ok { border-color: var(--ok); }
 .node.err { border-color: var(--danger); }
@@ -212,9 +224,20 @@ input:focus, select:focus, textarea:focus {
 
 .node-body { padding: 10px; display: flex; flex-direction: column; gap: 10px; }
 
-.row { display: flex; gap: 6px; align-items: center; }
+.row { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
 .method-select { width: 92px; font-weight: 600; }
-.path-input { flex: 1; }
+.path-input { flex: 1; min-width: 0; }
+
+/* Auto-grow a value input while it's being edited — it takes a full-width line so long values
+   (signatures, JWTs, {{variables}}) are readable without resizing the node. The `.growing`
+   class is toggled by JS focus events (more reliable than :focus across windows). */
+.node .kv-row input.growing,
+.node .pin-row input.growing,
+.node .row .path-input.growing {
+  flex: 1 1 100%;
+  position: relative;
+  z-index: 1;
+}
 
 .section { border-top: 1px solid var(--border); padding-top: 9px; }
 .section-title {
@@ -229,7 +252,7 @@ input:focus, select:focus, textarea:focus {
 }
 .mini-btn:hover { color: var(--text); border-color: var(--accent); }
 
-.kv-row { display: flex; gap: 6px; align-items: center; margin-bottom: 5px; position: relative; }
+.kv-row { display: flex; gap: 6px; align-items: center; margin-bottom: 5px; position: relative; flex-wrap: wrap; }
 .kv-row input { flex: 1; min-width: 0; }
 .kv-row select { flex: 1; min-width: 0; }
 .kv-row .k { flex: 0 0 38%; }
@@ -283,7 +306,7 @@ textarea.body-input {
 }
 
 /* ---------- Pins ---------- */
-.pin-row { display: flex; gap: 6px; align-items: center; margin-bottom: 5px; position: relative; }
+.pin-row { display: flex; gap: 6px; align-items: center; margin-bottom: 5px; position: relative; flex-wrap: wrap; }
 .pin-row.input { padding-left: 6px; }
 .pin-row.output { padding-right: 6px; }
 .pin-row input { min-width: 0; }
