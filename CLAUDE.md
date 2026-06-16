@@ -27,6 +27,7 @@ This is an ASP.NET Core 10.0 minimal API solution with two projects:
 
 - **BlazzPay.Api** — REST API gateway that wraps the BlazzPay QRIS payment provider
 - **BlazzPay.Api.Tests** — xUnit test suite with a project reference to BlazzPay.Api
+- **ApiFlow** — Visual drag-and-drop API workflow builder (static web UI served from `ApiFlow/wwwroot/`)
 
 ### Key Layers in BlazzPay.Api
 
@@ -53,3 +54,40 @@ This is an ASP.NET Core 10.0 minimal API solution with two projects:
 ### Docs
 
 `/docs/BlazzPay_API_Specification.md` is the upstream provider's API spec in Traditional Chinese — the authoritative reference for request/response shapes, error codes, and signature generation details.
+
+## ApiFlow
+
+A browser-based visual workflow builder located in `ApiFlow/wwwroot/`. No build step required — plain HTML/CSS/JS.
+
+| File | Responsibility |
+|------|----------------|
+| `index.html` | App shell: topbar (Base URL, Run all, Export, Import, Clear) + palette + canvas |
+| `app.js` | All logic: node/wire state, drag-and-drop, run engine, persistence |
+| `styles.css` | UI styling |
+
+### Key features
+
+- **Nodes** — individual API requests (method + path + headers + key-value body fields)
+- **Wires** — connect an upstream node's output JSON-path to a downstream node's input
+- **Transforms** — Base64 / MD5 / SHA / HMAC / RSA nodes that process wired values
+- **Generators** — `{{$guid}}`, `{{$now}}`, `{{$timestamp}}` etc., resolved fresh on each Run
+- **Run all** — topological sort + sequential execution via `/proxy` forwarder
+- **Export / Import** — save the entire workflow (nodes + wires + baseUrl) to a local `.json` file and reload it later
+
+### Persistence
+
+- Auto-saved to `localStorage` (key `apiflow.graph.v1`) on every change
+- **Export**: click **⬇ Export** to download `apiflow-workflow-{timestamp}.json`
+- **Import**: click **⬆ Import** to load a previously exported JSON file; prompts before overwriting an existing workflow
+
+### Export file format
+
+```json
+{
+  "version": "1.0",
+  "exportedAt": "<ISO timestamp>",
+  "baseUrl": "http://localhost:5296",
+  "nodes": [...],
+  "wires": [...]
+}
+```
