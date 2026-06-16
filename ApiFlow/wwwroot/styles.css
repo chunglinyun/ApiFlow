@@ -229,6 +229,7 @@ input:focus, select:focus, textarea:focus {
 
 .kv-row { display: flex; gap: 6px; align-items: center; margin-bottom: 5px; }
 .kv-row input { flex: 1; min-width: 0; }
+.kv-row select { flex: 1; min-width: 0; }
 .kv-row .k { flex: 0 0 38%; }
 .del-row {
   background: transparent; border: none; color: var(--text-dim);

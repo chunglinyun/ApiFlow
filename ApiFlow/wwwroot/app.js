@@ -48,6 +48,16 @@ const PRESETS = {
 };
 const METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD"];
 const FORM_CONTENT_TYPE = "application/x-www-form-urlencoded";
+const CONTENT_TYPES = [
+  "application/json",
+  "application/x-www-form-urlencoded",
+  "multipart/form-data",
+  "text/plain",
+  "application/xml",
+  "text/xml",
+  "text/html",
+  "application/octet-stream",
+];
 
 /* ---- Value generators (insertable via the palette, resolved at run time) - */
 function uuidv4() {
@@ -204,21 +214,15 @@ function buildHeadersSection(node) {
   const list = el("div");
   node.headers.forEach((hdr, i) => {
     const isCt = hdr.key.trim().toLowerCase() === "content-type";
-    const valAttrs = {
-      placeholder: "Value", value: hdr.value, spellcheck: "false",
-      oninput: (e) => { hdr.value = e.target.value; scheduleSave(); },
-    };
-    if (isCt) {
-      // Offer a dropdown of common content types; re-render on pick so the body editor can
-      // switch to/from form-urlencoded mode.
-      valAttrs.list = "ctype-list";
-      valAttrs.onchange = () => { renderAll(); save(); };
-    }
+    const valueCell = isCt
+      ? buildContentTypeValue(hdr)
+      : el("input", { placeholder: "Value", value: hdr.value, spellcheck: "false",
+          oninput: (e) => { hdr.value = e.target.value; scheduleSave(); } });
     list.appendChild(el("div", { class: "kv-row" }, [
       el("input", { class: "k", placeholder: "Header", value: hdr.key, spellcheck: "false",
         oninput: (e) => { hdr.key = e.target.value; scheduleSave(); },
         onchange: (e) => { if (e.target.value.trim().toLowerCase() === "content-type") { renderAll(); save(); } } }),
-      el("input", valAttrs),
+      valueCell,
       el("button", { class: "del-row", title: "Remove header", text: "×",
         onclick: () => { node.headers.splice(i, 1); renderAll(); save(); } }),
     ]));
@@ -231,6 +235,33 @@ function buildHeadersSection(node) {
     ]),
     list,
   ]);
+}
+
+/* Content-Type value rendered as a real dropdown showing ALL options (a <datalist>
+ * filters by the current text, so it would only show the matching entry). "Custom…" lets
+ * the user type any other value (e.g. with a charset). Re-renders on change so the body
+ * editor can switch between JSON and form-urlencoded modes. */
+function buildContentTypeValue(hdr) {
+  const known = CONTENT_TYPES.includes(hdr.value);
+  const opts = [];
+  if (!known) opts.push(el("option", { value: hdr.value, selected: "selected" }, hdr.value || "— select —"));
+  for (const ct of CONTENT_TYPES) {
+    opts.push(el("option", { value: ct, ...(ct === hdr.value ? { selected: "selected" } : {}) }, ct));
+  }
+  opts.push(el("option", { value: "__custom__" }, "Custom…"));
+  return el("select", {
+    class: "ct-select",
+    onchange: (e) => {
+      if (e.target.value === "__custom__") {
+        const v = prompt("Enter a custom Content-Type:", hdr.value || "");
+        if (v !== null && v.trim()) hdr.value = v.trim();
+      } else {
+        hdr.value = e.target.value;
+      }
+      renderAll();
+      save();
+    },
+  }, opts);
 }
 
 function buildJsonBody(node) {
