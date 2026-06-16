@@ -56,9 +56,9 @@
         <p><strong>Move</strong> a node by dragging its title bar.</p>
         <p><strong>Wire</strong> by dragging from a node's right ● <em>output</em> pin to another node's left ● <em>input</em> pin.</p>
         <p><strong>Remove a wire</strong> by clicking it, or clicking the connected input ● pin.</p>
-        <p><strong>Outputs can wire into header values</strong> too (each header has a left ● pin), and into <strong>Transform</strong> nodes for Base64 / MD5 / SHA / HMAC / RSA.</p>
-        <p>Reference an input pin or generator anywhere in the path, headers, or body with <code>{{name}}</code>.</p>
-        <p>Set <code>Content-Type: application/x-www-form-urlencoded</code> to switch the body to form fields.</p>
+        <p>The <strong>body is key/value fields</strong>, serialized by <code>Content-Type</code>: <code>application/json</code> → JSON object, <code>x-www-form-urlencoded</code> → form string (other types use a raw text box).</p>
+        <p><strong>Outputs can wire into header and body-field values</strong> (each has a left ● pin), and into <strong>Transform</strong> nodes for Base64 / MD5 / SHA / HMAC / RSA.</p>
+        <p>Reference an input pin or generator anywhere in the path, headers, or fields with <code>{{name}}</code>.</p>
         <p><strong>Run all</strong> executes nodes in dependency order, piping wired values along.</p>
       </div>
     </aside>

@@ -12,37 +12,43 @@
 const DEFAULT_BASE_URL = "http://localhost:5296";
 const STORAGE_KEY = "apiflow.graph.v1";
 
-/* ---- Node presets shown in the palette ---------------------------------- */
+/* ---- Node presets shown in the palette ----------------------------------
+ * A request body is a list of key/value `fields`. At run time those fields are
+ * serialized to JSON or x-www-form-urlencoded according to the Content-Type header
+ * (other content types fall back to a raw text body). */
 const JSON_HEADER = [{ key: "Content-Type", value: "application/json" }];
 const PRESETS = {
   blank: {
     title: "New request", method: "GET", path: "/",
-    headers: JSON_HEADER, body: "", inputs: [], outputs: [],
+    headers: JSON_HEADER, fields: [], inputs: [], outputs: [],
   },
   qris: {
     title: "Generate QRIS", method: "POST", path: "/api/blazzpay/qris",
     headers: JSON_HEADER,
-    body: pretty({ transactionId: "", username: "", amount: "" }),
+    fields: [{ key: "transactionId", value: "" }, { key: "username", value: "" }, { key: "amount", value: "" }],
     inputs: [],
     outputs: [{ name: "clientReference", path: "clientReference" }],
   },
   status: {
     title: "Check Status", method: "POST", path: "/api/blazzpay/qris/status",
     headers: JSON_HEADER,
-    body: pretty({ transactionId: "", clientReference: "{{ref}}" }),
-    inputs: [{ name: "ref", value: "" }],
+    fields: [{ key: "transactionId", value: "" }, { key: "clientReference", value: "" }],
+    inputs: [],
     outputs: [{ name: "status", path: "status" }],
   },
   balance: {
     title: "Get Balance", method: "GET", path: "/api/blazzpay/balance",
-    headers: [], body: "",
+    headers: [], fields: [],
     inputs: [],
     outputs: [{ name: "balance", path: "balance" }],
   },
   notify: {
     title: "Payment Notification", method: "POST", path: "/api/blazzpay/notifications/payment",
     headers: [{ key: "Content-Type", value: "application/json" }, { key: "Authorization", value: "Basic " }],
-    body: pretty({ transactionId: "", clientReference: "", amount: "", transDateTime: "", RRN: "", signatureCode: "" }),
+    fields: [
+      { key: "transactionId", value: "" }, { key: "clientReference", value: "" }, { key: "amount", value: "" },
+      { key: "transDateTime", value: "" }, { key: "RRN", value: "" }, { key: "signatureCode", value: "" },
+    ],
     inputs: [], outputs: [],
   },
 };
@@ -83,6 +89,23 @@ function contentTypeOf(node) {
   return h ? h.value.split(";")[0].trim().toLowerCase() : "";
 }
 function isFormNode(node) { return contentTypeOf(node) === FORM_CONTENT_TYPE; }
+// Empty/missing or application/json Content-Type → JSON body. Form/JSON both use the field editor.
+function isJsonNode(node) { const ct = contentTypeOf(node); return ct === "" || ct === "application/json"; }
+function isStructuredBody(node) { return isFormNode(node) || isJsonNode(node); }
+
+// Coerce a string field value to a JSON value: true/false/null, safe numbers, or JSON
+// objects/arrays are parsed; everything else (incl. long/leading-zero numeric IDs) stays a string.
+function coerceJsonValue(s) {
+  if (typeof s !== "string") return s;
+  const t = s.trim();
+  if (t === "") return s;
+  if (t === "true") return true;
+  if (t === "false") return false;
+  if (t === "null") return null;
+  if (/^-?(0|[1-9]\d*)(\.\d+)?$/.test(t) && t.replace(/[-.]/g, "").length <= 15) return Number(t);
+  if ((t[0] === "{" && t.endsWith("}")) || (t[0] === "[" && t.endsWith("]"))) { try { return JSON.parse(t); } catch { /* keep string */ } }
+  return s;
+}
 
 /* ---- Transform (crypto) nodes ------------------------------------------- */
 // Algorithms a transform node can run. `key` = shows a key/secret field;
@@ -275,8 +298,8 @@ function makeNode(presetKey, x, y) {
     id: uid("n"), kind: "request",
     title: p.title, method: p.method, path: p.path,
     headers: p.headers.map((h) => ({ id: uid("h"), key: h.key, value: h.value })),
-    body: p.body,
-    form: (p.form || []).map((f) => ({ ...f })),
+    fields: (p.fields || []).map((f) => ({ id: uid("f"), key: f.key, value: f.value || "" })),
+    body: "", // raw body, used only for non-JSON/non-form content types
     inputs: p.inputs.map((i) => ({ id: uid("p"), name: i.name, value: i.value || "" })),
     outputs: p.outputs.map((o) => ({ id: uid("p"), name: o.name, path: o.path })),
     x, y,
@@ -380,9 +403,9 @@ function buildRequestBody(node, body) {
 
   body.appendChild(buildHeadersSection(node));
 
-  // Body editor — skipped for bodyless verbs.
+  // Body editor — skipped for bodyless verbs. Field editor for JSON/form, raw text otherwise.
   if (node.method !== "GET" && node.method !== "HEAD") {
-    body.appendChild(isFormNode(node) ? buildFormBody(node) : buildJsonBody(node));
+    body.appendChild(isStructuredBody(node) ? buildFieldsBody(node) : buildRawBody(node));
   }
 
   body.appendChild(buildInputsSection(node));
@@ -452,36 +475,48 @@ function buildContentTypeValue(hdr) {
   }, opts);
 }
 
-function buildJsonBody(node) {
-  const ta = el("textarea", {
-    class: "body-input", spellcheck: "false", placeholder: "request body (JSON)",
-    oninput: (e) => { node.body = e.target.value; scheduleSave(); },
-  });
-  ta.value = node.body || "";
-  return el("div", { class: "section" }, [el("div", { class: "section-title" }, ["Body"]), ta]);
-}
-
-function buildFormBody(node) {
-  node.form = node.form || [];
+// Field-based body. Each field is a key/value row with a left wire-in pin (like headers),
+// serialized to JSON or form-urlencoded at run time based on Content-Type.
+function buildFieldsBody(node) {
+  node.fields = node.fields || [];
+  const form = isFormNode(node);
   const list = el("div");
-  node.form.forEach((f, i) => {
+  node.fields.forEach((f, i) => {
+    if (!f.id) f.id = uid("f");
+    const incoming = wires.find((w) => w.to.nodeId === node.id && w.to.pinId === f.id);
+    const dot = el("span", { class: "pin in", "data-node": node.id, "data-pin": f.id });
+    if (incoming) {
+      dot.title = "Click to disconnect this wire";
+      dot.addEventListener("click", () => { wires = wires.filter((w) => w.id !== incoming.id); renderAll(); save(); });
+    }
     list.appendChild(el("div", { class: "kv-row" }, [
+      dot,
       el("input", { class: "k", placeholder: "field", value: f.key, spellcheck: "false",
         oninput: (e) => { f.key = e.target.value; scheduleSave(); } }),
-      el("input", { placeholder: "value", value: f.value, spellcheck: "false",
+      el("input", { placeholder: incoming ? "(from wire)" : "value", value: f.value, spellcheck: "false",
         oninput: (e) => { f.value = e.target.value; scheduleSave(); } }),
       el("button", { class: "del-row", title: "Remove field", text: "×",
-        onclick: () => { node.form.splice(i, 1); renderAll(); save(); } }),
+        onclick: () => { wires = wires.filter((w) => w.to.pinId !== f.id); node.fields.splice(i, 1); renderAll(); save(); } }),
     ]));
   });
   return el("div", { class: "section" }, [
     el("div", { class: "section-title" }, [
-      "Body (form-urlencoded)",
+      form ? "Body fields  ⟨◉ → form-urlencoded⟩" : "Body fields  ⟨◉ → JSON⟩",
       el("button", { class: "mini-btn", text: "+ field",
-        onclick: () => { node.form.push({ key: "", value: "" }); renderAll(); save(); } }),
+        onclick: () => { node.fields.push({ id: uid("f"), key: "", value: "" }); renderAll(); save(); } }),
     ]),
     list,
   ]);
+}
+
+// Raw text body — used when Content-Type isn't JSON or form (text/plain, xml, octet-stream…).
+function buildRawBody(node) {
+  const ta = el("textarea", {
+    class: "body-input", spellcheck: "false", placeholder: "raw request body",
+    oninput: (e) => { node.body = e.target.value; scheduleSave(); },
+  });
+  ta.value = node.body || "";
+  return el("div", { class: "section" }, [el("div", { class: "section-title" }, ["Body (raw)"]), ta]);
 }
 
 function buildInputsSection(node) {
@@ -843,13 +878,27 @@ async function runNode(node) {
     value: hasIncoming(node.id, h.id) ? coerce(incomingValue(node.id, h.id)) : subst(h.value),
   }));
 
+  // Resolve a body field's value: a wire wins over the typed value.
+  const fieldRaw = (f) => (hasIncoming(node.id, f.id) ? incomingValue(node.id, f.id) : undefined);
+
   let body = null;
   if (node.method !== "GET" && node.method !== "HEAD") {
+    const usable = (node.fields || []).filter((f) => f.key.trim());
     if (isFormNode(node)) {
-      body = (node.form || [])
-        .filter((f) => f.key.trim())
-        .map((f) => encodeURIComponent(subst(f.key)) + "=" + encodeURIComponent(subst(f.value)))
+      body = usable
+        .map((f) => {
+          const wired = fieldRaw(f);
+          const v = wired !== undefined ? coerce(wired) : subst(f.value);
+          return encodeURIComponent(subst(f.key)) + "=" + encodeURIComponent(v);
+        })
         .join("&");
+    } else if (isJsonNode(node)) {
+      const obj = {};
+      for (const f of usable) {
+        const wired = fieldRaw(f);
+        obj[subst(f.key)] = wired !== undefined ? wired : coerceJsonValue(subst(f.value));
+      }
+      body = JSON.stringify(obj);
     } else {
       body = subst(node.body || "");
     }
@@ -949,6 +998,20 @@ function insertToken(token) {
 }
 
 /* ---- Persistence -------------------------------------------------------- */
+// Migrate a saved node to the field-based body model: prefer existing `fields`, then the old
+// `form` array, then parse a legacy JSON `body` string into fields.
+function migrateFields(n) {
+  if (Array.isArray(n.fields)) return n.fields.map((f) => ({ id: f.id || uid("f"), key: f.key, value: f.value }));
+  if (Array.isArray(n.form)) return n.form.map((f) => ({ id: uid("f"), key: f.key, value: f.value }));
+  try {
+    const o = JSON.parse(n.body);
+    if (o && typeof o === "object" && !Array.isArray(o)) {
+      return Object.entries(o).map(([k, v]) => ({ id: uid("f"), key: k, value: typeof v === "object" ? JSON.stringify(v) : String(v) }));
+    }
+  } catch { /* not JSON — leave as raw body */ }
+  return [];
+}
+
 let saveTimer = null;
 function scheduleSave() { clearTimeout(saveTimer); saveTimer = setTimeout(save, 400); }
 function save() {
@@ -956,7 +1019,7 @@ function save() {
     baseUrl: els.baseUrl.value,
     nodes: nodes.map((n) => ({
       id: n.id, kind: n.kind || "request", title: n.title,
-      method: n.method, path: n.path, headers: n.headers, body: n.body, form: n.form || [],
+      method: n.method, path: n.path, headers: n.headers, fields: n.fields || [], body: n.body || "",
       algo: n.algo, key: n.key, outEncoding: n.outEncoding,
       inputs: n.inputs, outputs: n.outputs, x: n.x, y: n.y,
     })),
@@ -973,7 +1036,8 @@ function load() {
     nodes = (data.nodes || []).map((n) => ({
       ...n,
       kind: n.kind || "request",
-      form: n.form || [],
+      fields: migrateFields(n),
+      body: typeof n.body === "string" ? n.body : "",
       headers: (n.headers || []).map((h) => ({ id: h.id || uid("h"), key: h.key, value: h.value })),
       result: null, parsedBody: null, outputValues: {}, inputResolved: {},
     }));
