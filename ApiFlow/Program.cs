@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Net.Http.Headers;
 using System.Text;
+using Api.Common.Middleware;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -10,7 +11,7 @@ builder.Services.AddHttpClient("proxy")
     .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
 
 var app = builder.Build();
-
+app.UseMiddleware<RequestLoggingMiddleware>();
 // Serve the static node-graph UI from wwwroot (index.html as the default document).
 app.UseDefaultFiles();
 app.UseStaticFiles();

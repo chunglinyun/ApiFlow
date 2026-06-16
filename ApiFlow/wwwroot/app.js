@@ -84,6 +84,156 @@ function contentTypeOf(node) {
 }
 function isFormNode(node) { return contentTypeOf(node) === FORM_CONTENT_TYPE; }
 
+/* ---- Transform (crypto) nodes ------------------------------------------- */
+// Algorithms a transform node can run. `key` = shows a key/secret field;
+// `enc` = offers a hex/base64 output-encoding choice.
+const ALGORITHMS = {
+  "base64-encode":   { label: "Base64 encode", key: false, enc: false },
+  "base64-decode":   { label: "Base64 decode", key: false, enc: false },
+  "md5":             { label: "MD5", key: false, enc: true },
+  "sha1":            { label: "SHA-1", key: false, enc: true },
+  "sha256":          { label: "SHA-256", key: false, enc: true },
+  "sha512":          { label: "SHA-512", key: false, enc: true },
+  "hmac-sha256":     { label: "HMAC-SHA256", key: true, enc: true },
+  "rsa-sha256-sign": { label: "RSA-SHA256 sign (PEM private key)", key: true, enc: false },
+  "rsa-oaep-encrypt":{ label: "RSA-OAEP encrypt (PEM public key)", key: true, enc: false },
+};
+// Palette items (dragged in like API clients); each seeds a default algorithm.
+const TRANSFORM_PRESETS = {
+  base64: { title: "Base64", algo: "base64-encode" },
+  md5: { title: "MD5", algo: "md5" },
+  sha: { title: "SHA-256", algo: "sha256" },
+  hmac: { title: "HMAC", algo: "hmac-sha256" },
+  rsa: { title: "RSA", algo: "rsa-sha256-sign" },
+};
+
+/* Byte / encoding helpers */
+function utf8Bytes(str) { return new TextEncoder().encode(str); }
+function bytesToB64(bytes) {
+  let bin = "";
+  for (const b of bytes) bin += String.fromCharCode(b);
+  return btoa(bin);
+}
+function b64ToBytes(b64) {
+  const bin = atob(b64.replace(/\s+/g, ""));
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
+function bytesToHex(buf) {
+  return Array.from(new Uint8Array(buf)).map((x) => x.toString(16).padStart(2, "0")).join("");
+}
+function hexToBytes(hex) {
+  const out = new Uint8Array(hex.length / 2);
+  for (let i = 0; i < out.length; i++) out[i] = parseInt(hex.substr(i * 2, 2), 16);
+  return out;
+}
+function encodeDigest(buf, enc) { return enc === "base64" ? bytesToB64(new Uint8Array(buf)) : bytesToHex(buf); }
+
+/* Joseph Myers' MD5 (public domain), UTF-8 input, hex output. Web Crypto has no MD5. */
+function md5(inputStr) {
+  function add32(a, b) { return (a + b) & 0xffffffff; }
+  function cmn(q, a, b, x, s, t) { a = add32(add32(a, q), add32(x, t)); return add32((a << s) | (a >>> (32 - s)), b); }
+  function ff(a, b, c, d, x, s, t) { return cmn((b & c) | (~b & d), a, b, x, s, t); }
+  function gg(a, b, c, d, x, s, t) { return cmn((b & d) | (c & ~d), a, b, x, s, t); }
+  function hh(a, b, c, d, x, s, t) { return cmn(b ^ c ^ d, a, b, x, s, t); }
+  function ii(a, b, c, d, x, s, t) { return cmn(c ^ (b | ~d), a, b, x, s, t); }
+  function md5cycle(x, k) {
+    let [a, b, c, d] = x;
+    a = ff(a, b, c, d, k[0], 7, -680876936); d = ff(d, a, b, c, k[1], 12, -389564586);
+    c = ff(c, d, a, b, k[2], 17, 606105819); b = ff(b, c, d, a, k[3], 22, -1044525330);
+    a = ff(a, b, c, d, k[4], 7, -176418897); d = ff(d, a, b, c, k[5], 12, 1200080426);
+    c = ff(c, d, a, b, k[6], 17, -1473231341); b = ff(b, c, d, a, k[7], 22, -45705983);
+    a = ff(a, b, c, d, k[8], 7, 1770035416); d = ff(d, a, b, c, k[9], 12, -1958414417);
+    c = ff(c, d, a, b, k[10], 17, -42063); b = ff(b, c, d, a, k[11], 22, -1990404162);
+    a = ff(a, b, c, d, k[12], 7, 1804603682); d = ff(d, a, b, c, k[13], 12, -40341101);
+    c = ff(c, d, a, b, k[14], 17, -1502002290); b = ff(b, c, d, a, k[15], 22, 1236535329);
+    a = gg(a, b, c, d, k[1], 5, -165796510); d = gg(d, a, b, c, k[6], 9, -1069501632);
+    c = gg(c, d, a, b, k[11], 14, 643717713); b = gg(b, c, d, a, k[0], 20, -373897302);
+    a = gg(a, b, c, d, k[5], 5, -701558691); d = gg(d, a, b, c, k[10], 9, 38016083);
+    c = gg(c, d, a, b, k[15], 14, -660478335); b = gg(b, c, d, a, k[4], 20, -405537848);
+    a = gg(a, b, c, d, k[9], 5, 568446438); d = gg(d, a, b, c, k[14], 9, -1019803690);
+    c = gg(c, d, a, b, k[3], 14, -187363961); b = gg(b, c, d, a, k[8], 20, 1163531501);
+    a = gg(a, b, c, d, k[13], 5, -1444681467); d = gg(d, a, b, c, k[2], 9, -51403784);
+    c = gg(c, d, a, b, k[7], 14, 1735328473); b = gg(b, c, d, a, k[12], 20, -1926607734);
+    a = hh(a, b, c, d, k[5], 4, -378558); d = hh(d, a, b, c, k[8], 11, -2022574463);
+    c = hh(c, d, a, b, k[11], 16, 1839030562); b = hh(b, c, d, a, k[14], 23, -35309556);
+    a = hh(a, b, c, d, k[1], 4, -1530992060); d = hh(d, a, b, c, k[4], 11, 1272893353);
+    c = hh(c, d, a, b, k[7], 16, -155497632); b = hh(b, c, d, a, k[10], 23, -1094730640);
+    a = hh(a, b, c, d, k[13], 4, 681279174); d = hh(d, a, b, c, k[0], 11, -358537222);
+    c = hh(c, d, a, b, k[3], 16, -722521979); b = hh(b, c, d, a, k[6], 23, 76029189);
+    a = hh(a, b, c, d, k[9], 4, -640364487); d = hh(d, a, b, c, k[12], 11, -421815835);
+    c = hh(c, d, a, b, k[15], 16, 530742520); b = hh(b, c, d, a, k[2], 23, -995338651);
+    a = ii(a, b, c, d, k[0], 6, -198630844); d = ii(d, a, b, c, k[7], 10, 1126891415);
+    c = ii(c, d, a, b, k[14], 15, -1416354905); b = ii(b, c, d, a, k[5], 21, -57434055);
+    a = ii(a, b, c, d, k[12], 6, 1700485571); d = ii(d, a, b, c, k[3], 10, -1894986606);
+    c = ii(c, d, a, b, k[10], 15, -1051523); b = ii(b, c, d, a, k[1], 21, -2054922799);
+    a = ii(a, b, c, d, k[8], 6, 1873313359); d = ii(d, a, b, c, k[15], 10, -30611744);
+    c = ii(c, d, a, b, k[6], 15, -1560198380); b = ii(b, c, d, a, k[13], 21, 1309151649);
+    a = ii(a, b, c, d, k[4], 6, -145523070); d = ii(d, a, b, c, k[11], 10, -1120210379);
+    c = ii(c, d, a, b, k[2], 15, 718787259); b = ii(b, c, d, a, k[9], 21, -343485551);
+    x[0] = add32(a, x[0]); x[1] = add32(b, x[1]); x[2] = add32(c, x[2]); x[3] = add32(d, x[3]);
+  }
+  function md5blk(s) {
+    const blks = [];
+    for (let i = 0; i < 64; i += 4) blks[i >> 2] = s.charCodeAt(i) + (s.charCodeAt(i + 1) << 8) + (s.charCodeAt(i + 2) << 16) + (s.charCodeAt(i + 3) << 24);
+    return blks;
+  }
+  function md51(s) {
+    const n = s.length, state = [1732584193, -271733879, -1732584194, 271733878];
+    let i;
+    for (i = 64; i <= s.length; i += 64) md5cycle(state, md5blk(s.substring(i - 64, i)));
+    s = s.substring(i - 64);
+    const tail = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+    for (i = 0; i < s.length; i++) tail[i >> 2] |= s.charCodeAt(i) << ((i % 4) << 3);
+    tail[i >> 2] |= 0x80 << ((i % 4) << 3);
+    if (i > 55) { md5cycle(state, tail); for (i = 0; i < 16; i++) tail[i] = 0; }
+    tail[14] = n * 8;
+    md5cycle(state, tail);
+    return state;
+  }
+  function rhex(n) {
+    let s = "";
+    for (let j = 0; j < 4; j++) s += ((n >> (j * 8 + 4)) & 0x0f).toString(16) + ((n >> (j * 8)) & 0x0f).toString(16);
+    return s;
+  }
+  const bytes = utf8Bytes(inputStr);
+  let bin = "";
+  for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+  return md51(bin).map(rhex).join("");
+}
+
+function pemToDer(pem) {
+  const b64 = pem.replace(/-----BEGIN [^-]+-----/g, "").replace(/-----END [^-]+-----/g, "").replace(/\s+/g, "");
+  if (!b64) throw new Error("Empty or invalid PEM key.");
+  return b64ToBytes(b64).buffer;
+}
+
+// Apply a transform algorithm. Returns a string (hash/cipher text or decoded text).
+async function applyAlgo(algo, input, key, enc) {
+  switch (algo) {
+    case "base64-encode": return bytesToB64(utf8Bytes(input));
+    case "base64-decode": return new TextDecoder().decode(b64ToBytes(input));
+    case "md5": { const hex = md5(input); return enc === "base64" ? bytesToB64(hexToBytes(hex)) : hex; }
+    case "sha1": return encodeDigest(await crypto.subtle.digest("SHA-1", utf8Bytes(input)), enc);
+    case "sha256": return encodeDigest(await crypto.subtle.digest("SHA-256", utf8Bytes(input)), enc);
+    case "sha512": return encodeDigest(await crypto.subtle.digest("SHA-512", utf8Bytes(input)), enc);
+    case "hmac-sha256": {
+      const k = await crypto.subtle.importKey("raw", utf8Bytes(key), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+      return encodeDigest(await crypto.subtle.sign("HMAC", k, utf8Bytes(input)), enc);
+    }
+    case "rsa-sha256-sign": {
+      const k = await crypto.subtle.importKey("pkcs8", pemToDer(key), { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" }, false, ["sign"]);
+      return bytesToB64(new Uint8Array(await crypto.subtle.sign("RSASSA-PKCS1-v1_5", k, utf8Bytes(input))));
+    }
+    case "rsa-oaep-encrypt": {
+      const k = await crypto.subtle.importKey("spki", pemToDer(key), { name: "RSA-OAEP", hash: "SHA-256" }, false, ["encrypt"]);
+      return bytesToB64(new Uint8Array(await crypto.subtle.encrypt({ name: "RSA-OAEP" }, k, utf8Bytes(input))));
+    }
+    default: throw new Error("Unknown algorithm: " + algo);
+  }
+}
+
 /* ---- State -------------------------------------------------------------- */
 let nodes = [];
 let wires = [];
@@ -122,9 +272,9 @@ function el(tag, attrs, children) {
 function makeNode(presetKey, x, y) {
   const p = PRESETS[presetKey] || PRESETS.blank;
   return {
-    id: uid("n"),
+    id: uid("n"), kind: "request",
     title: p.title, method: p.method, path: p.path,
-    headers: p.headers.map((h) => ({ ...h })),
+    headers: p.headers.map((h) => ({ id: uid("h"), key: h.key, value: h.value })),
     body: p.body,
     form: (p.form || []).map((f) => ({ ...f })),
     inputs: p.inputs.map((i) => ({ id: uid("p"), name: i.name, value: i.value || "" })),
@@ -137,12 +287,39 @@ function makeNode(presetKey, x, y) {
   };
 }
 
-function addNode(presetKey) {
+function makeTransformNode(presetKey, x, y) {
+  const p = TRANSFORM_PRESETS[presetKey] || TRANSFORM_PRESETS.base64;
+  return {
+    id: uid("n"), kind: "transform",
+    title: p.title, algo: p.algo, key: "", outEncoding: "hex",
+    inputs: [{ id: uid("p"), name: "in", value: "" }],
+    outputs: [{ id: uid("p"), name: "out" }],
+    x, y,
+    result: null,
+    parsedBody: null,
+    outputValues: {},
+    inputResolved: {},
+  };
+}
+
+function spawnXY() {
   const wrap = els.canvasWrap;
   const x = wrap.scrollLeft + 70 + (spawnCount % 5) * 26;
   const y = wrap.scrollTop + 70 + (spawnCount % 5) * 26;
   spawnCount++;
+  return { x, y };
+}
+
+function addNode(presetKey) {
+  const { x, y } = spawnXY();
   nodes.push(makeNode(presetKey, x, y));
+  renderAll();
+  save();
+}
+
+function addTransform(presetKey) {
+  const { x, y } = spawnXY();
+  nodes.push(makeTransformNode(presetKey, x, y));
   renderAll();
   save();
 }
@@ -158,6 +335,7 @@ function renderAll() {
 
 function renderNode(node) {
   const root = el("div", { class: "node", "data-node": node.id });
+  if (node.kind === "transform") root.classList.add("transform");
   root.style.left = node.x + "px";
   root.style.top = node.y + "px";
   if (node.result) {
@@ -178,12 +356,21 @@ function renderNode(node) {
   head.addEventListener("pointerdown", (e) => startNodeDrag(e, node, root));
   root.appendChild(head);
 
-  /* Body */
+  /* Body container — request vs. transform layouts. */
   const body = el("div", { class: "node-body" });
+  if (node.kind === "transform") buildTransformBody(node, body);
+  else buildRequestBody(node, body);
 
+  if (node.result) body.appendChild(buildResult(node));
+
+  root.appendChild(body);
+  return root;
+}
+
+function buildRequestBody(node, body) {
   const method = el("select", {
     class: "method-select",
-    onchange: (e) => { node.method = e.target.value; save(); },
+    onchange: (e) => { node.method = e.target.value; renderAll(); save(); },
   }, METHODS.map((m) => el("option", { value: m, ...(m === node.method ? { selected: "selected" } : {}) }, m)));
   const path = el("input", {
     class: "path-input", spellcheck: "false", placeholder: "/path",
@@ -191,47 +378,48 @@ function renderNode(node) {
   });
   body.appendChild(el("div", { class: "row" }, [method, path]));
 
-  /* Headers */
   body.appendChild(buildHeadersSection(node));
 
-  /* Body (skip the editor for bodyless verbs) */
+  // Body editor — skipped for bodyless verbs.
   if (node.method !== "GET" && node.method !== "HEAD") {
     body.appendChild(isFormNode(node) ? buildFormBody(node) : buildJsonBody(node));
   }
 
-  /* Input + output pins */
   body.appendChild(buildInputsSection(node));
   body.appendChild(buildOutputsSection(node));
-
-  /* Result */
-  if (node.result) body.appendChild(buildResult(node));
-
-  root.appendChild(body);
-  return root;
 }
 
 function buildHeadersSection(node) {
   const list = el("div");
   node.headers.forEach((hdr, i) => {
+    if (!hdr.id) hdr.id = uid("h");
     const isCt = hdr.key.trim().toLowerCase() === "content-type";
+    const incoming = wires.find((w) => w.to.nodeId === node.id && w.to.pinId === hdr.id);
+    // Header value can be supplied by a wire (output → header). The typed value is a fallback.
+    const dot = el("span", { class: "pin in", "data-node": node.id, "data-pin": hdr.id });
+    if (incoming) {
+      dot.title = "Click to disconnect this wire";
+      dot.addEventListener("click", () => { wires = wires.filter((w) => w.id !== incoming.id); renderAll(); save(); });
+    }
     const valueCell = isCt
       ? buildContentTypeValue(hdr)
-      : el("input", { placeholder: "Value", value: hdr.value, spellcheck: "false",
+      : el("input", { placeholder: incoming ? "(from wire)" : "Value", value: hdr.value, spellcheck: "false",
           oninput: (e) => { hdr.value = e.target.value; scheduleSave(); } });
     list.appendChild(el("div", { class: "kv-row" }, [
+      dot,
       el("input", { class: "k", placeholder: "Header", value: hdr.key, spellcheck: "false",
         oninput: (e) => { hdr.key = e.target.value; scheduleSave(); },
         onchange: (e) => { if (e.target.value.trim().toLowerCase() === "content-type") { renderAll(); save(); } } }),
       valueCell,
       el("button", { class: "del-row", title: "Remove header", text: "×",
-        onclick: () => { node.headers.splice(i, 1); renderAll(); save(); } }),
+        onclick: () => { wires = wires.filter((w) => w.to.pinId !== hdr.id); node.headers.splice(i, 1); renderAll(); save(); } }),
     ]));
   });
   return el("div", { class: "section" }, [
     el("div", { class: "section-title" }, [
-      "Headers",
+      "Headers  ⟨◉ wire-in⟩",
       el("button", { class: "mini-btn", text: "+ header",
-        onclick: () => { node.headers.push({ key: "", value: "" }); renderAll(); save(); } }),
+        onclick: () => { node.headers.push({ id: uid("h"), key: "", value: "" }); renderAll(); save(); } }),
     ]),
     list,
   ]);
@@ -362,11 +550,80 @@ function buildOutputsSection(node) {
   ]);
 }
 
+/* ---- Transform node body ------------------------------------------------ */
+function buildTransformBody(node, body) {
+  const meta = ALGORITHMS[node.algo] || ALGORITHMS["base64-encode"];
+
+  const algoSel = el("select", {
+    class: "algo-select",
+    onchange: (e) => { node.algo = e.target.value; renderAll(); save(); },
+  }, Object.keys(ALGORITHMS).map((a) => el("option", { value: a, ...(a === node.algo ? { selected: "selected" } : {}) }, ALGORITHMS[a].label)));
+  body.appendChild(el("div", { class: "row" }, [algoSel]));
+
+  // Single input pin (wire target) + literal/{{ref}} fallback.
+  const inPin = node.inputs[0];
+  const inDot = el("span", { class: "pin in", "data-node": node.id, "data-pin": inPin.id });
+  const incoming = wires.find((w) => w.to.nodeId === node.id && w.to.pinId === inPin.id);
+  if (incoming) {
+    inDot.title = "Click to disconnect this wire";
+    inDot.addEventListener("click", () => { wires = wires.filter((w) => w.id !== incoming.id); renderAll(); save(); });
+  }
+  const inResolved = node.inputResolved[inPin.id];
+  body.appendChild(el("div", { class: "section" }, [
+    el("div", { class: "section-title" }, ["Input  ⟨◉ wire-in⟩"]),
+    el("div", { class: "pin-row input" }, [
+      inDot,
+      el("input", { class: "pin-extra", placeholder: incoming ? "(from wire)" : "text or {{ref}}", value: inPin.value, spellcheck: "false",
+        oninput: (e) => { inPin.value = e.target.value; scheduleSave(); } }),
+      (inResolved !== undefined && inResolved !== "")
+        ? el("span", { class: "pin-resolved", title: String(inResolved) }, ["= " + String(inResolved)]) : null,
+    ]),
+  ]));
+
+  // Key / secret (HMAC + RSA).
+  if (meta.key) {
+    const keyArea = el("textarea", {
+      class: "body-input key-input", spellcheck: "false",
+      placeholder: node.algo.startsWith("rsa") ? "-----BEGIN ... KEY-----" : "secret key",
+      oninput: (e) => { node.key = e.target.value; scheduleSave(); },
+    });
+    keyArea.value = node.key || "";
+    body.appendChild(el("div", { class: "section" }, [el("div", { class: "section-title" }, ["Key / secret"]), keyArea]));
+  }
+
+  // Output encoding (hash / HMAC).
+  if (meta.enc) {
+    const encSel = el("select", {
+      class: "enc-select",
+      onchange: (e) => { node.outEncoding = e.target.value; save(); },
+    }, ["hex", "base64"].map((x) => el("option", { value: x, ...((node.outEncoding || "hex") === x ? { selected: "selected" } : {}) }, x)));
+    body.appendChild(el("div", { class: "section" }, [el("div", { class: "section-title" }, ["Output encoding"]), encSel]));
+  }
+
+  // Single output pin.
+  const outPin = node.outputs[0];
+  const outDot = el("span", { class: "pin out", "data-node": node.id, "data-pin": outPin.id });
+  outDot.addEventListener("pointerdown", (e) => startWireDrag(e, node.id, outPin.id));
+  const outVal = node.outputValues[outPin.id];
+  body.appendChild(el("div", { class: "section" }, [
+    el("div", { class: "section-title" }, ["Output"]),
+    el("div", { class: "pin-row output" }, [
+      el("span", { class: "out-label" }, ["out"]),
+      (outVal !== undefined && outVal !== null && outVal !== "")
+        ? el("span", { class: "pin-resolved", title: String(outVal) }, ["= " + String(outVal)]) : null,
+      outDot,
+    ]),
+  ]));
+}
+
 function buildResult(node) {
   const r = node.result;
   const meta = el("div", { class: "result-meta" });
   if (r.running) {
     meta.appendChild(el("span", { class: "badge" }, ["running…"]));
+  } else if (r.transform) {
+    meta.appendChild(el("span", { class: "badge " + (r.error ? "s0" : "s2") }, [r.error ? "error" : "done"]));
+    if (typeof r.elapsedMs === "number") meta.appendChild(el("span", { class: "result-time" }, [r.elapsedMs + " ms"]));
   } else {
     const cls = r.status === 0 ? "s0" : "s" + String(r.status)[0];
     meta.appendChild(el("span", { class: "badge " + cls }, [String(r.status) + (r.reason ? " " + r.reason : "")]));
@@ -545,6 +802,19 @@ function substitute(str, map) {
   });
 }
 
+function coerce(v) { return v === undefined || v === null ? "" : (typeof v === "object" ? JSON.stringify(v) : String(v)); }
+
+// Value flowing into (nodeId, pinId) from a connected upstream output, or undefined.
+function incomingValue(nodeId, pinId) {
+  const w = wires.find((x) => x.to.nodeId === nodeId && x.to.pinId === pinId);
+  if (!w) return undefined;
+  const src = byId(w.from.nodeId);
+  return src ? src.outputValues[w.from.pinId] : undefined;
+}
+function hasIncoming(nodeId, pinId) {
+  return wires.some((x) => x.to.nodeId === nodeId && x.to.pinId === pinId);
+}
+
 async function runNode(node) {
   node.result = { running: true };
   node.outputValues = {};
@@ -567,7 +837,11 @@ async function runNode(node) {
   const baseUrl = (els.baseUrl.value || "").trim().replace(/\/+$/, "");
   const rawPath = subst(node.path || "");
   const url = /^https?:\/\//i.test(rawPath) ? rawPath : baseUrl + (rawPath.startsWith("/") ? rawPath : "/" + rawPath);
-  const headers = node.headers.filter((h) => h.key.trim()).map((h) => ({ key: subst(h.key), value: subst(h.value) }));
+  const headers = node.headers.filter((h) => h.key.trim()).map((h) => ({
+    key: subst(h.key),
+    // A wired header value (output → header) overrides the typed value at run time.
+    value: hasIncoming(node.id, h.id) ? coerce(incomingValue(node.id, h.id)) : subst(h.value),
+  }));
 
   let body = null;
   if (node.method !== "GET" && node.method !== "HEAD") {
@@ -601,6 +875,30 @@ async function runNode(node) {
   }
 }
 
+async function runTransform(node) {
+  node.result = { running: true, transform: true };
+  node.outputValues = {};
+  node.inputResolved = {};
+  renderAll();
+
+  const inPin = node.inputs[0];
+  // Wired input overrides the literal; literals still allow generators like {{$guid}}.
+  const input = hasIncoming(node.id, inPin.id)
+    ? coerce(incomingValue(node.id, inPin.id))
+    : substitute(inPin.value || "", {});
+  node.inputResolved[inPin.id] = input;
+  const key = substitute(node.key || "", {});
+
+  const t0 = performance.now();
+  try {
+    const out = await applyAlgo(node.algo, input, key, node.outEncoding || "hex");
+    node.result = { transform: true, body: out, elapsedMs: Math.round(performance.now() - t0) };
+    node.outputValues[node.outputs[0].id] = out;
+  } catch (err) {
+    node.result = { transform: true, error: err.message, elapsedMs: Math.round(performance.now() - t0) };
+  }
+}
+
 async function runAll() {
   if (!nodes.length) return;
   let order;
@@ -618,7 +916,8 @@ async function runAll() {
   let failures = 0;
   for (const id of order) {
     const node = byId(id);
-    await runNode(node);
+    if (node.kind === "transform") await runTransform(node);
+    else await runNode(node);
     if (node.result.error || node.result.status === 0 || node.result.status >= 400) failures++;
     renderAll();
   }
@@ -656,8 +955,9 @@ function save() {
   const data = {
     baseUrl: els.baseUrl.value,
     nodes: nodes.map((n) => ({
-      id: n.id, title: n.title, method: n.method, path: n.path,
-      headers: n.headers, body: n.body, form: n.form || [],
+      id: n.id, kind: n.kind || "request", title: n.title,
+      method: n.method, path: n.path, headers: n.headers, body: n.body, form: n.form || [],
+      algo: n.algo, key: n.key, outEncoding: n.outEncoding,
       inputs: n.inputs, outputs: n.outputs, x: n.x, y: n.y,
     })),
     wires,
@@ -670,7 +970,13 @@ function load() {
     if (!raw) return false;
     const data = JSON.parse(raw);
     els.baseUrl.value = data.baseUrl || DEFAULT_BASE_URL;
-    nodes = (data.nodes || []).map((n) => ({ ...n, form: n.form || [], result: null, parsedBody: null, outputValues: {}, inputResolved: {} }));
+    nodes = (data.nodes || []).map((n) => ({
+      ...n,
+      kind: n.kind || "request",
+      form: n.form || [],
+      headers: (n.headers || []).map((h) => ({ id: h.id || uid("h"), key: h.key, value: h.value })),
+      result: null, parsedBody: null, outputValues: {}, inputResolved: {},
+    }));
     wires = data.wires || [];
     spawnCount = nodes.length;
     return true;
@@ -697,8 +1003,12 @@ function init() {
       nodes = []; wires = []; spawnCount = 0; setStatus("", ""); renderAll(); save();
     }
   });
-  document.querySelectorAll(".palette-item").forEach((btn) => {
+  // Only request presets (transform buttons share .palette-item for styling but have no data-preset).
+  document.querySelectorAll(".palette-item[data-preset]").forEach((btn) => {
     btn.addEventListener("click", () => addNode(btn.getAttribute("data-preset")));
+  });
+  document.querySelectorAll(".transform-item").forEach((btn) => {
+    btn.addEventListener("click", () => addTransform(btn.getAttribute("data-transform")));
   });
 
   // Remember the last focused value field so generators can target it.

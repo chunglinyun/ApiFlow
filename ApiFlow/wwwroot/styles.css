@@ -177,6 +177,8 @@ input:focus, select:focus, textarea:focus {
 .node.running { border-color: var(--warn); }
 .node.ok { border-color: var(--ok); }
 .node.err { border-color: var(--danger); }
+.node.transform { width: 280px; }
+.node.transform .node-head { background: linear-gradient(180deg, rgba(37, 194, 160, 0.18), transparent); }
 
 .node-head {
   display: flex;
@@ -227,10 +229,16 @@ input:focus, select:focus, textarea:focus {
 }
 .mini-btn:hover { color: var(--text); border-color: var(--accent); }
 
-.kv-row { display: flex; gap: 6px; align-items: center; margin-bottom: 5px; }
+.kv-row { display: flex; gap: 6px; align-items: center; margin-bottom: 5px; position: relative; }
 .kv-row input { flex: 1; min-width: 0; }
 .kv-row select { flex: 1; min-width: 0; }
 .kv-row .k { flex: 0 0 38%; }
+
+.algo-select, .enc-select { flex: 1; font-weight: 600; }
+.key-input { min-height: 60px; font-size: 11px; }
+.out-label { flex: 1; color: var(--text-dim); font-style: italic; }
+.transform-item { color: var(--accent-2); border-color: var(--border-strong); }
+.transform-item:hover { border-color: var(--accent-2); }
 .del-row {
   background: transparent; border: none; color: var(--text-dim);
   cursor: pointer; padding: 0 2px; font-size: 14px;

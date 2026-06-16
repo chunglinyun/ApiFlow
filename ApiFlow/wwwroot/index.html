@@ -34,6 +34,13 @@
       <button class="palette-item" data-preset="balance">Get Balance</button>
       <button class="palette-item" data-preset="notify">Payment Notification</button>
 
+      <h3>Transforms (drag in)</h3>
+      <button class="palette-item transform-item" data-transform="base64">Base64</button>
+      <button class="palette-item transform-item" data-transform="md5">MD5</button>
+      <button class="palette-item transform-item" data-transform="sha">SHA</button>
+      <button class="palette-item transform-item" data-transform="hmac">HMAC</button>
+      <button class="palette-item transform-item" data-transform="rsa">RSA</button>
+
       <h3>Insert generator into a value</h3>
       <div class="gen-grid" id="genGrid">
         <button class="gen-item" data-token="{{$guid}}">GUID</button>
@@ -49,6 +56,7 @@
         <p><strong>Move</strong> a node by dragging its title bar.</p>
         <p><strong>Wire</strong> by dragging from a node's right ● <em>output</em> pin to another node's left ● <em>input</em> pin.</p>
         <p><strong>Remove a wire</strong> by clicking it, or clicking the connected input ● pin.</p>
+        <p><strong>Outputs can wire into header values</strong> too (each header has a left ● pin), and into <strong>Transform</strong> nodes for Base64 / MD5 / SHA / HMAC / RSA.</p>
         <p>Reference an input pin or generator anywhere in the path, headers, or body with <code>{{name}}</code>.</p>
         <p>Set <code>Content-Type: application/x-www-form-urlencoded</code> to switch the body to form fields.</p>
         <p><strong>Run all</strong> executes nodes in dependency order, piping wired values along.</p>

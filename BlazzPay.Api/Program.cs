@@ -1,3 +1,4 @@
+using Api.Common.Middleware;
 using BlazzPay.Api.Options;
 using BlazzPay.Api.Services;
 
@@ -29,6 +30,7 @@ if (app.Environment.IsDevelopment())
 }
 
 
+app.UseMiddleware<RequestLoggingMiddleware>();
 app.UseAuthorization();
 
 app.MapControllers();
