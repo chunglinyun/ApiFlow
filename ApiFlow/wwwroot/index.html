@@ -28,11 +28,11 @@
       <h2>Add a node</h2>
       <button class="palette-item" data-preset="blank">＋ Blank request</button>
 
-      <h3>BlazzPay presets</h3>
-      <button class="palette-item" data-preset="qris">Generate QRIS</button>
-      <button class="palette-item" data-preset="status">Check Status</button>
-      <button class="palette-item" data-preset="balance">Get Balance</button>
-      <button class="palette-item" data-preset="notify">Payment Notification</button>
+<!--      <h3>BlazzPay presets</h3>-->
+<!--      <button class="palette-item" data-preset="qris">Generate QRIS</button>-->
+<!--      <button class="palette-item" data-preset="status">Check Status</button>-->
+<!--      <button class="palette-item" data-preset="balance">Get Balance</button>-->
+<!--      <button class="palette-item" data-preset="notify">Payment Notification</button>-->
 
       <h3>Transforms (drag in)</h3>
       <button class="palette-item transform-item" data-transform="base64">Base64</button>
@@ -57,8 +57,8 @@
         <p><strong>Wire</strong> by dragging from a node's right ● <em>output</em> pin to another node's left ● <em>input</em> pin.</p>
         <p><strong>Remove a wire</strong> by clicking it, or clicking the connected input ● pin.</p>
         <p>The <strong>body is key/value fields</strong>, serialized by <code>Content-Type</code>: <code>application/json</code> → JSON object, <code>x-www-form-urlencoded</code> → form string (other types use a raw text box).</p>
-        <p><strong>Outputs can wire into header and body-field values</strong> (each has a left ● pin), and into <strong>Transform</strong> nodes for Base64 / MD5 / SHA / HMAC / RSA.</p>
-        <p>Reference an input pin or generator anywhere in the path, headers, or fields with <code>{{name}}</code>.</p>
+        <p><strong>Outputs can wire into header and body-field values</strong> (each has a left ● pin), and into <strong>Transform</strong> nodes for Base64 / MD5 / SHA / HMAC / RSA. One output can feed several targets.</p>
+        <p>Drop a generator like <code>{{$guid}}</code> into any path, header, or field value; it resolves on each <strong>Run</strong>.</p>
         <p><strong>Run all</strong> executes nodes in dependency order, piping wired values along.</p>
       </div>
     </aside>

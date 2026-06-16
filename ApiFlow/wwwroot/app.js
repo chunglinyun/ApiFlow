@@ -408,7 +408,6 @@ function buildRequestBody(node, body) {
     body.appendChild(isStructuredBody(node) ? buildFieldsBody(node) : buildRawBody(node));
   }
 
-  body.appendChild(buildInputsSection(node));
   body.appendChild(buildOutputsSection(node));
 }
 
@@ -517,43 +516,6 @@ function buildRawBody(node) {
   });
   ta.value = node.body || "";
   return el("div", { class: "section" }, [el("div", { class: "section-title" }, ["Body (raw)"]), ta]);
-}
-
-function buildInputsSection(node) {
-  const list = el("div");
-  node.inputs.forEach((pin, i) => {
-    const dot = el("span", { class: "pin in", "data-node": node.id, "data-pin": pin.id });
-    const incoming = wires.find((w) => w.to.nodeId === node.id && w.to.pinId === pin.id);
-    if (incoming) {
-      dot.title = "Click to disconnect this wire";
-      dot.addEventListener("click", () => {
-        wires = wires.filter((w) => w.id !== incoming.id);
-        renderAll();
-        save();
-      });
-    }
-    const resolved = node.inputResolved[pin.id];
-    const row = el("div", { class: "pin-row input" }, [
-      dot,
-      el("input", { class: "pin-name", placeholder: "name", value: pin.name, spellcheck: "false",
-        oninput: (e) => { pin.name = e.target.value; scheduleSave(); } }),
-      el("input", { class: "pin-extra", placeholder: "default value", value: pin.value, spellcheck: "false",
-        oninput: (e) => { pin.value = e.target.value; scheduleSave(); } }),
-      (resolved !== undefined && resolved !== "")
-        ? el("span", { class: "pin-resolved", title: String(resolved) }, ["= " + String(resolved)]) : null,
-      el("button", { class: "del-row", title: "Remove input", text: "×",
-        onclick: () => { removePin(node, "inputs", pin.id); } }),
-    ]);
-    list.appendChild(row);
-  });
-  return el("div", { class: "section" }, [
-    el("div", { class: "section-title" }, [
-      "Inputs  ⟨{{name}}⟩",
-      el("button", { class: "mini-btn", text: "+ input",
-        onclick: () => { node.inputs.push({ id: uid("p"), name: "", value: "" }); renderAll(); save(); } }),
-    ]),
-    list,
-  ]);
 }
 
 function buildOutputsSection(node) {
