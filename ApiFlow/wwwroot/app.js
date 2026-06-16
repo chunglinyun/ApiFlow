@@ -1009,11 +1009,92 @@ function load() {
   } catch { return false; }
 }
 
+/* ---- Export/Import ------------------------------------------------------- */
+function exportWorkflow() {
+  const data = {
+    version: "1.0",
+    exportedAt: new Date().toISOString(),
+    baseUrl: els.baseUrl.value,
+    nodes: nodes.map((n) => ({
+      id: n.id, kind: n.kind || "request", title: n.title,
+      method: n.method, path: n.path, headers: n.headers, fields: n.fields || [], body: n.body || "",
+      algo: n.algo, key: n.key, outEncoding: n.outEncoding,
+      inputs: n.inputs, outputs: n.outputs, x: n.x, y: n.y,
+    })),
+    wires,
+  };
+  
+  const json = JSON.stringify(data, null, 2);
+  const blob = new Blob([json], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `apiflow-workflow-${Date.now()}.json`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+function validateWorkflowData(data) {
+  if (!data || typeof data !== "object") return false;
+  if (!Array.isArray(data.nodes) || !Array.isArray(data.wires)) return false;
+  if (typeof data.baseUrl !== "string") return false;
+  return true;
+}
+
+function importWorkflow(file) {
+  if (!file) return;
+  if (!file.name.endsWith(".json")) {
+    setStatus("Invalid file: must be .json", "err");
+    return;
+  }
+  
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    try {
+      const data = JSON.parse(e.target.result);
+      if (!validateWorkflowData(data)) {
+        setStatus("Invalid workflow format", "err");
+        return;
+      }
+      
+      if (nodes.length > 0 && !confirm("This will replace your current workflow. Continue?")) {
+        return;
+      }
+      
+      els.baseUrl.value = data.baseUrl || DEFAULT_BASE_URL;
+      nodes = (data.nodes || []).map((n) => ({
+        ...n,
+        kind: n.kind || "request",
+        fields: migrateFields(n),
+        body: typeof n.body === "string" ? n.body : "",
+        headers: (n.headers || []).map((h) => ({ id: h.id || uid("h"), key: h.key, value: h.value })),
+        result: null, parsedBody: null, outputValues: {}, inputResolved: {},
+      }));
+      wires = data.wires || [];
+      spawnCount = Math.max(spawnCount, nodes.length);
+      setStatus("Workflow imported successfully", "ok");
+      renderAll();
+      save();
+    } catch (err) {
+      setStatus("Error importing workflow: " + err.message, "err");
+    }
+  };
+  reader.onerror = () => {
+    setStatus("Error reading file", "err");
+  };
+  reader.readAsText(file);
+}
+
 /* ---- Boot --------------------------------------------------------------- */
 function init() {
   els.baseUrl = document.getElementById("baseUrl");
   els.runBtn = document.getElementById("runBtn");
   els.runStatus = document.getElementById("runStatus");
+  els.exportBtn = document.getElementById("exportBtn");
+  els.importBtn = document.getElementById("importBtn");
+  els.importFile = document.getElementById("importFile");
   els.clearBtn = document.getElementById("clearBtn");
   els.canvas = document.getElementById("canvas");
   els.canvasWrap = document.getElementById("canvasWrap");
@@ -1024,6 +1105,9 @@ function init() {
 
   els.baseUrl.addEventListener("input", scheduleSave);
   els.runBtn.addEventListener("click", runAll);
+  els.exportBtn.addEventListener("click", exportWorkflow);
+  els.importBtn.addEventListener("click", () => els.importFile.click());
+  els.importFile.addEventListener("change", (e) => importWorkflow(e.target.files[0]));
   els.clearBtn.addEventListener("click", () => {
     if (!nodes.length || confirm("Remove all nodes and wires?")) {
       nodes = []; wires = []; spawnCount = 0; setStatus("", ""); renderAll(); save();
