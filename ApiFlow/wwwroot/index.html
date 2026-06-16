@@ -60,8 +60,10 @@
         <p><strong>Wire</strong> by dragging from a node's right ● <em>output</em> pin to another node's left ● <em>input</em> pin.</p>
         <p><strong>Remove a wire</strong> by clicking it, or clicking the connected input ● pin.</p>
         <p>The <strong>body is key/value fields</strong>, serialized by <code>Content-Type</code>: <code>application/json</code> → JSON object, <code>x-www-form-urlencoded</code> → form string (other types use a raw text box).</p>
-        <p><strong>Outputs can wire into header and body-field values</strong> (each has a left ● pin), and into <strong>Transform</strong> nodes for Base64 / MD5 / SHA / HMAC / RSA. One output can feed several targets.</p>
-        <p>Drop a generator like <code>{{$guid}}</code> into any path, header, or field value; it resolves on each <strong>Run</strong>.</p>
+        <p><strong>Outputs can wire into header and body-field values</strong> (each has a left ● pin), and into <strong>Transform</strong> nodes. One output can feed several targets.</p>
+        <p>If an output is an object, set its <strong>response path</strong> (or pick a key from the <strong>▾</strong> dropdown after a run) so only that value flows on.</p>
+        <p>A wired value <strong>appends</strong> to what you typed (so <code>Bearer </code> keeps its prefix), or place it precisely with the <code>{{name}}</code> chip.</p>
+        <p>Use <strong>+ obj</strong> to nest an object field (e.g. <code>Amount → { Value, Currency }</code>). Values are sent as strings unless they are <code>true/false/null</code> or JSON <code>{…}</code>/<code>[…]</code>.</p>
         <p><strong>Run all</strong> executes nodes in dependency order, piping wired values along.</p>
       </div>
     </aside>

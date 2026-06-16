@@ -93,16 +93,15 @@ function isFormNode(node) { return contentTypeOf(node) === FORM_CONTENT_TYPE; }
 function isJsonNode(node) { const ct = contentTypeOf(node); return ct === "" || ct === "application/json"; }
 function isStructuredBody(node) { return isFormNode(node) || isJsonNode(node); }
 
-// Coerce a string field value to a JSON value: true/false/null, safe numbers, or JSON
-// objects/arrays are parsed; everything else (incl. long/leading-zero numeric IDs) stays a string.
+// Coerce a string field value to a JSON value. Values stay STRINGS by default (so "100" or a
+// long/leading-zero id is sent as a string, matching string-typed APIs); only true/false/null
+// and explicit JSON objects/arrays ({…}/[…]) are parsed into their native types.
 function coerceJsonValue(s) {
   if (typeof s !== "string") return s;
   const t = s.trim();
-  if (t === "") return s;
   if (t === "true") return true;
   if (t === "false") return false;
   if (t === "null") return null;
-  if (/^-?(0|[1-9]\d*)(\.\d+)?$/.test(t) && t.replace(/[-.]/g, "").length <= 15) return Number(t);
   if ((t[0] === "{" && t.endsWith("}")) || (t[0] === "[" && t.endsWith("]"))) { try { return JSON.parse(t); } catch { /* keep string */ } }
   return s;
 }
@@ -411,6 +410,20 @@ function buildRequestBody(node, body) {
   body.appendChild(buildOutputsSection(node));
 }
 
+// Small chip showing a wire's {{name}} token; click to insert it into the field value
+// (so you can prefix it, e.g. type "Bearer " then click to get "Bearer {{accessToken}}").
+function wireChipEl(item, incoming) {
+  const token = "{{" + (incoming.name || "value") + "}}";
+  const chip = el("span", { class: "wire-chip", title: "Click to insert " + token + " into the value" }, [token]);
+  chip.addEventListener("mousedown", (e) => e.preventDefault());
+  chip.addEventListener("click", () => { item.value = (item.value || "") + token; renderAll(); save(); });
+  return chip;
+}
+function resolvedEl(val) {
+  return (val !== undefined && val !== null && val !== "")
+    ? el("span", { class: "pin-resolved", title: coerce(val) }, ["= " + coerce(val)]) : null;
+}
+
 function buildHeadersSection(node) {
   const list = el("div");
   node.headers.forEach((hdr, i) => {
@@ -425,14 +438,17 @@ function buildHeadersSection(node) {
     }
     const valueCell = isCt
       ? buildContentTypeValue(hdr)
-      : el("input", { placeholder: incoming ? "(from wire)" : "Value", value: hdr.value, spellcheck: "false",
+      : el("input", { placeholder: "Value", value: hdr.value, spellcheck: "false",
           oninput: (e) => { hdr.value = e.target.value; scheduleSave(); } });
+    const wiredVal = incoming ? incomingValue(node.id, hdr.id) : undefined;
     list.appendChild(el("div", { class: "kv-row" }, [
       dot,
       el("input", { class: "k", placeholder: "Header", value: hdr.key, spellcheck: "false",
         oninput: (e) => { hdr.key = e.target.value; scheduleSave(); },
         onchange: (e) => { if (e.target.value.trim().toLowerCase() === "content-type") { renderAll(); save(); } } }),
       valueCell,
+      (!isCt && incoming) ? wireChipEl(hdr, incoming) : null,
+      resolvedEl(wiredVal),
       el("button", { class: "del-row", title: "Remove header", text: "×",
         onclick: () => { wires = wires.filter((w) => w.to.pinId !== hdr.id); node.headers.splice(i, 1); renderAll(); save(); } }),
     ]));
@@ -479,33 +495,61 @@ function buildContentTypeValue(hdr) {
 function buildFieldsBody(node) {
   node.fields = node.fields || [];
   const form = isFormNode(node);
-  const list = el("div");
-  node.fields.forEach((f, i) => {
-    if (!f.id) f.id = uid("f");
-    const incoming = wires.find((w) => w.to.nodeId === node.id && w.to.pinId === f.id);
-    const dot = el("span", { class: "pin in", "data-node": node.id, "data-pin": f.id });
-    if (incoming) {
-      dot.title = "Click to disconnect this wire";
-      dot.addEventListener("click", () => { wires = wires.filter((w) => w.id !== incoming.id); renderAll(); save(); });
-    }
-    list.appendChild(el("div", { class: "kv-row" }, [
-      dot,
-      el("input", { class: "k", placeholder: "field", value: f.key, spellcheck: "false",
-        oninput: (e) => { f.key = e.target.value; scheduleSave(); } }),
-      el("input", { placeholder: incoming ? "(from wire)" : "value", value: f.value, spellcheck: "false",
-        oninput: (e) => { f.value = e.target.value; scheduleSave(); } }),
-      el("button", { class: "del-row", title: "Remove field", text: "×",
-        onclick: () => { wires = wires.filter((w) => w.to.pinId !== f.id); node.fields.splice(i, 1); renderAll(); save(); } }),
-    ]));
-  });
   return el("div", { class: "section" }, [
     el("div", { class: "section-title" }, [
       form ? "Body fields  ⟨◉ → form-urlencoded⟩" : "Body fields  ⟨◉ → JSON⟩",
       el("button", { class: "mini-btn", text: "+ field",
         onclick: () => { node.fields.push({ id: uid("f"), key: "", value: "" }); renderAll(); save(); } }),
+      el("button", { class: "mini-btn", text: "+ obj", title: "Add a nested object field",
+        onclick: () => { node.fields.push({ id: uid("f"), key: "", kind: "object", fields: [] }); renderAll(); save(); } }),
     ]),
-    list,
+    buildFieldRows(node, node.fields),
   ]);
+}
+
+// Recursively render body-field rows. Object fields nest their own rows (and add buttons).
+function buildFieldRows(node, fields) {
+  const list = el("div");
+  fields.forEach((f) => {
+    if (!f.id) f.id = uid("f");
+    if (f.kind === "object") {
+      f.fields = f.fields || [];
+      list.appendChild(el("div", { class: "kv-row obj-row" }, [
+        el("span", { class: "obj-caret" }, ["{ }"]),
+        el("input", { class: "k", placeholder: "object key", value: f.key, spellcheck: "false",
+          oninput: (e) => { f.key = e.target.value; scheduleSave(); } }),
+        el("button", { class: "mini-btn", text: "+ field",
+          onclick: () => { f.fields.push({ id: uid("f"), key: "", value: "" }); renderAll(); save(); } }),
+        el("button", { class: "mini-btn", text: "+ obj",
+          onclick: () => { f.fields.push({ id: uid("f"), key: "", kind: "object", fields: [] }); renderAll(); save(); } }),
+        el("button", { class: "del-row", title: "Remove object", text: "×",
+          onclick: () => removeFieldDeep(node, f.id) }),
+      ]));
+      const nested = buildFieldRows(node, f.fields);
+      nested.classList.add("field-nested");
+      list.appendChild(nested);
+    } else {
+      const incoming = wires.find((w) => w.to.nodeId === node.id && w.to.pinId === f.id);
+      const dot = el("span", { class: "pin in", "data-node": node.id, "data-pin": f.id });
+      if (incoming) {
+        dot.title = "Click to disconnect this wire";
+        dot.addEventListener("click", () => { wires = wires.filter((w) => w.id !== incoming.id); renderAll(); save(); });
+      }
+      const shown = incoming ? incomingValue(node.id, f.id) : (node.fieldResolved ? node.fieldResolved[f.id] : undefined);
+      list.appendChild(el("div", { class: "kv-row" }, [
+        dot,
+        el("input", { class: "k", placeholder: "field", value: f.key, spellcheck: "false",
+          oninput: (e) => { f.key = e.target.value; scheduleSave(); } }),
+        el("input", { placeholder: "value", value: f.value || "", spellcheck: "false",
+          oninput: (e) => { f.value = e.target.value; scheduleSave(); } }),
+        incoming ? wireChipEl(f, incoming) : null,
+        resolvedEl(shown),
+        el("button", { class: "del-row", title: "Remove field", text: "×",
+          onclick: () => removeFieldDeep(node, f.id) }),
+      ]));
+    }
+  });
+  return list;
 }
 
 // Raw text body — used when Content-Type isn't JSON or form (text/plain, xml, octet-stream…).
@@ -520,17 +564,25 @@ function buildRawBody(node) {
 
 function buildOutputsSection(node) {
   const list = el("div");
+  // After a run, offer the response's keys as a dropdown so the user picks exactly one.
+  const paths = (node.parsedBody && typeof node.parsedBody === "object") ? flattenPaths(node.parsedBody) : [];
   node.outputs.forEach((pin) => {
     const dot = el("span", { class: "pin out", "data-node": node.id, "data-pin": pin.id });
     dot.addEventListener("pointerdown", (e) => startWireDrag(e, node.id, pin.id));
     const val = node.outputValues[pin.id];
+    const picker = paths.length
+      ? el("select", { class: "path-pick", title: "Pick a key from the last response",
+          onchange: (e) => { if (e.target.value) { pin.path = e.target.value; renderAll(); save(); } } },
+          [el("option", { value: "" }, "▾key")].concat(paths.map((p) => el("option", { value: p, ...(p === pin.path ? { selected: "selected" } : {}) }, p))))
+      : null;
     const row = el("div", { class: "pin-row output" }, [
       el("input", { class: "pin-name", placeholder: "name", value: pin.name, spellcheck: "false",
         oninput: (e) => { pin.name = e.target.value; scheduleSave(); } }),
       el("input", { class: "pin-extra", placeholder: "response path", value: pin.path, spellcheck: "false",
         oninput: (e) => { pin.path = e.target.value; scheduleSave(); } }),
+      picker,
       (val !== undefined && val !== null)
-        ? el("span", { class: "pin-resolved", title: String(val) }, ["= " + String(val)]) : null,
+        ? el("span", { class: "pin-resolved", title: coerce(val) }, ["= " + coerce(val)]) : null,
       el("button", { class: "del-row", title: "Remove output", text: "×",
         onclick: () => { removePin(node, "outputs", pin.id); } }),
       dot,
@@ -716,6 +768,28 @@ function startNodeDrag(e, node, root) {
   document.addEventListener("pointerup", up);
 }
 
+// A wire's variable name (used as {{name}}) defaults to the upstream output pin's name.
+function deriveWireName(fromNodeId, fromPinId) {
+  const src = byId(fromNodeId);
+  const pin = src && (src.outputs || []).find((o) => o.id === fromPinId);
+  const raw = pin && pin.name ? pin.name : "value";
+  return raw.replace(/[^\w$]/g, "") || "value";
+}
+// Ensure the name is unique among wires already entering the target node.
+function uniqueWireName(toNodeId, base) {
+  const taken = new Set(wires.filter((w) => w.to.nodeId === toNodeId).map((w) => w.name));
+  if (!taken.has(base)) return base;
+  let i = 2;
+  while (taken.has(base + i)) i++;
+  return base + i;
+}
+// Give any wire loaded/imported without a name one (derived from its upstream output).
+function backfillWireNames() {
+  for (const w of wires) {
+    if (!w.name) w.name = uniqueWireName(w.to.nodeId, deriveWireName(w.from.nodeId, w.from.pinId));
+  }
+}
+
 /* ---- Dragging a wire ---------------------------------------------------- */
 function startWireDrag(e, fromNodeId, fromPinId) {
   e.preventDefault();
@@ -743,8 +817,10 @@ function startWireDrag(e, fromNodeId, fromPinId) {
       if (toNodeId !== fromNodeId) {
         // An input pin accepts a single incoming wire — replace any existing one.
         wires = wires.filter((w) => !(w.to.nodeId === toNodeId && w.to.pinId === toPinId));
-        wires.push({ id: uid("w"), from: { nodeId: fromNodeId, pinId: fromPinId }, to: { nodeId: toNodeId, pinId: toPinId } });
+        const name = uniqueWireName(toNodeId, deriveWireName(fromNodeId, fromPinId));
+        wires.push({ id: uid("w"), name, from: { nodeId: fromNodeId, pinId: fromPinId }, to: { nodeId: toNodeId, pinId: toPinId } });
         drawWires();
+        renderAll();
         save();
       }
     }
@@ -811,6 +887,89 @@ function incomingValue(nodeId, pinId) {
 function hasIncoming(nodeId, pinId) {
   return wires.some((x) => x.to.nodeId === nodeId && x.to.pinId === pinId);
 }
+function incomingWire(nodeId, pinId) { return wires.find((x) => x.to.nodeId === nodeId && x.to.pinId === pinId); }
+function escapeRe(s) { return String(s).replace(/[.*+?^${}()|[\]\\]/g, "\\$&"); }
+
+// Build { wireName: upstreamValue } for every wire entering a node, for {{name}} substitution.
+function wireMapFor(node) {
+  const map = {};
+  for (const w of wires) {
+    if (w.to.nodeId !== node.id) continue;
+    const src = byId(w.from.nodeId);
+    map[w.name || "value"] = src ? src.outputValues[w.from.pinId] : undefined;
+  }
+  return map;
+}
+
+// Resolve a header/field value to a string. Substitute {{names}}; if the field is wired but the
+// wire's {{name}} isn't referenced, append the wired value (keeps a typed prefix like "Bearer ").
+function resolveTemplate(node, item, map) {
+  const out = substitute(item.value || "", map);
+  const w = incomingWire(node.id, item.id);
+  if (!w) return out;
+  const name = w.name || "value";
+  if (new RegExp("\\{\\{\\s*" + escapeRe(name) + "\\s*\\}\\}").test(item.value || "")) return out;
+  return out + coerce(map[name]);
+}
+
+// JSON variant: when the whole value is exactly the wire token (or empty + wired), return the
+// native value so objects/numbers keep their type; otherwise substitute + coerce like above.
+function resolveTemplateJson(node, item, map) {
+  const w = incomingWire(node.id, item.id);
+  if (w) {
+    const name = w.name || "value";
+    const v = (item.value || "").trim();
+    if (v === "" || new RegExp("^\\{\\{\\s*" + escapeRe(name) + "\\s*\\}\\}$").test(v)) return map[name];
+    if (!new RegExp("\\{\\{\\s*" + escapeRe(name) + "\\s*\\}\\}").test(v)) return coerceJsonValue(substitute(v, map) + coerce(map[name]));
+  }
+  return coerceJsonValue(substitute(item.value || "", map));
+}
+
+// Serialize body fields (incl. nested object fields) into a JSON object.
+function fieldsToJsonObject(node, fields, map) {
+  const obj = {};
+  for (const f of fields || []) {
+    if (!f.key || !f.key.trim()) continue;
+    if (f.kind === "object") {
+      obj[substitute(f.key, map)] = fieldsToJsonObject(node, f.fields || [], map);
+    } else {
+      const v = resolveTemplateJson(node, f, map);
+      if (node.fieldResolved) node.fieldResolved[f.id] = v;
+      obj[substitute(f.key, map)] = v;
+    }
+  }
+  return obj;
+}
+
+// Flatten an object's reachable dot/index paths — powers the output key picker.
+function flattenPaths(obj, prefix, out, depth) {
+  out = out || []; depth = depth || 0;
+  if (obj === null || typeof obj !== "object" || depth > 4) return out;
+  if (Array.isArray(obj)) { if (obj.length) flattenPaths(obj[0], (prefix || "") + "[0]", out, depth + 1); return out; }
+  for (const k of Object.keys(obj)) {
+    const p = prefix ? prefix + "." + k : k;
+    out.push(p);
+    if (obj[k] && typeof obj[k] === "object") flattenPaths(obj[k], p, out, depth + 1);
+  }
+  return out;
+}
+
+// Remove a (possibly nested) body field by id, plus any wires targeting it or its descendants.
+function removeFieldDeep(node, id) {
+  let removed = null;
+  const rec = (arr) => {
+    const i = arr.findIndex((f) => f.id === id);
+    if (i >= 0) { removed = arr.splice(i, 1)[0]; return true; }
+    for (const f of arr) if (f.kind === "object" && f.fields && rec(f.fields)) return true;
+    return false;
+  };
+  rec(node.fields || []);
+  const ids = new Set();
+  (function collect(f) { if (!f) return; ids.add(f.id); (f.fields || []).forEach(collect); })(removed);
+  wires = wires.filter((w) => !ids.has(w.to.pinId));
+  renderAll();
+  save();
+}
 
 async function runNode(node) {
   node.result = { running: true };
@@ -818,17 +977,9 @@ async function runNode(node) {
   node.inputResolved = {};
   renderAll();
 
-  const map = {};
-  for (const inp of node.inputs) {
-    const wire = wires.find((w) => w.to.nodeId === node.id && w.to.pinId === inp.id);
-    let val = inp.value;
-    if (wire) {
-      const src = byId(wire.from.nodeId);
-      val = src ? src.outputValues[wire.from.pinId] : undefined;
-    }
-    node.inputResolved[inp.id] = val;
-    map[inp.name] = val;
-  }
+  // Substitution map = { wireName: upstreamValue } for every wire entering this node.
+  const map = wireMapFor(node);
+  node.fieldResolved = {};
 
   const subst = (s) => substitute(s, map);
   const baseUrl = (els.baseUrl.value || "").trim().replace(/\/+$/, "");
@@ -836,31 +987,23 @@ async function runNode(node) {
   const url = /^https?:\/\//i.test(rawPath) ? rawPath : baseUrl + (rawPath.startsWith("/") ? rawPath : "/" + rawPath);
   const headers = node.headers.filter((h) => h.key.trim()).map((h) => ({
     key: subst(h.key),
-    // A wired header value (output → header) overrides the typed value at run time.
-    value: hasIncoming(node.id, h.id) ? coerce(incomingValue(node.id, h.id)) : subst(h.value),
+    value: resolveTemplate(node, h, map),
   }));
-
-  // Resolve a body field's value: a wire wins over the typed value.
-  const fieldRaw = (f) => (hasIncoming(node.id, f.id) ? incomingValue(node.id, f.id) : undefined);
 
   let body = null;
   if (node.method !== "GET" && node.method !== "HEAD") {
-    const usable = (node.fields || []).filter((f) => f.key.trim());
     if (isFormNode(node)) {
-      body = usable
-        .map((f) => {
-          const wired = fieldRaw(f);
-          const v = wired !== undefined ? coerce(wired) : subst(f.value);
-          return encodeURIComponent(subst(f.key)) + "=" + encodeURIComponent(v);
-        })
-        .join("&");
+      const flat = [];
+      (function walk(fields) {
+        for (const f of fields || []) {
+          if (!f.key.trim()) continue;
+          if (f.kind === "object") flat.push([f.key, JSON.stringify(fieldsToJsonObject(node, f.fields || [], map))]);
+          else { const v = resolveTemplate(node, f, map); node.fieldResolved[f.id] = v; flat.push([f.key, v]); }
+        }
+      })(node.fields);
+      body = flat.map(([k, v]) => encodeURIComponent(subst(k)) + "=" + encodeURIComponent(v)).join("&");
     } else if (isJsonNode(node)) {
-      const obj = {};
-      for (const f of usable) {
-        const wired = fieldRaw(f);
-        obj[subst(f.key)] = wired !== undefined ? wired : coerceJsonValue(subst(f.value));
-      }
-      body = JSON.stringify(obj);
+      body = JSON.stringify(fieldsToJsonObject(node, node.fields || [], map));
     } else {
       body = subst(node.body || "");
     }
@@ -962,8 +1105,13 @@ function insertToken(token) {
 /* ---- Persistence -------------------------------------------------------- */
 // Migrate a saved node to the field-based body model: prefer existing `fields`, then the old
 // `form` array, then parse a legacy JSON `body` string into fields.
+function normalizeFields(arr) {
+  return (arr || []).map((f) => (f.kind === "object"
+    ? { id: f.id || uid("f"), key: f.key, kind: "object", fields: normalizeFields(f.fields) }
+    : { id: f.id || uid("f"), key: f.key, value: f.value }));
+}
 function migrateFields(n) {
-  if (Array.isArray(n.fields)) return n.fields.map((f) => ({ id: f.id || uid("f"), key: f.key, value: f.value }));
+  if (Array.isArray(n.fields)) return normalizeFields(n.fields);
   if (Array.isArray(n.form)) return n.form.map((f) => ({ id: uid("f"), key: f.key, value: f.value }));
   try {
     const o = JSON.parse(n.body);
@@ -1004,6 +1152,7 @@ function load() {
       result: null, parsedBody: null, outputValues: {}, inputResolved: {},
     }));
     wires = data.wires || [];
+    backfillWireNames();
     spawnCount = nodes.length;
     return true;
   } catch { return false; }
@@ -1073,6 +1222,7 @@ function importWorkflow(file) {
         result: null, parsedBody: null, outputValues: {}, inputResolved: {},
       }));
       wires = data.wires || [];
+      backfillWireNames();
       spawnCount = Math.max(spawnCount, nodes.length);
       setStatus("Workflow imported successfully", "ok");
       renderAll();
