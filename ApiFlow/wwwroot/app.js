@@ -254,7 +254,8 @@ async function applyAlgo(algo, input, key, enc, iv) {
     }
     case "aes-cbc-decrypt": {
       const k = await crypto.subtle.importKey("raw", utf8Bytes(key), { name: "AES-CBC" }, false, ["decrypt"]);
-      const pt = await crypto.subtle.decrypt({ name: "AES-CBC", iv: utf8Bytes(iv) }, k, b64ToBytes(input));
+      const ct = enc === "hex" ? hexToBytes(input.trim()) : b64ToBytes(input);
+      const pt = await crypto.subtle.decrypt({ name: "AES-CBC", iv: utf8Bytes(iv) }, k, ct);
       return new TextDecoder().decode(pt);
     }
     case "rsa-sha256-sign": {
@@ -693,7 +694,8 @@ function buildTransformBody(node, body) {
       class: "enc-select",
       onchange: (e) => { node.outEncoding = e.target.value; save(); },
     }, ["hex", "base64"].map((x) => el("option", { value: x, ...((node.outEncoding || "hex") === x ? { selected: "selected" } : {}) }, x)));
-    body.appendChild(el("div", { class: "section" }, [el("div", { class: "section-title" }, ["Output encoding"]), encSel]));
+    const encLabel = node.algo === "aes-cbc-decrypt" ? "Input encoding" : "Output encoding";
+    body.appendChild(el("div", { class: "section" }, [el("div", { class: "section-title" }, [encLabel]), encSel]));
   }
 
   // Single output pin.
