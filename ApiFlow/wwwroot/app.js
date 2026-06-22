@@ -108,7 +108,7 @@ function coerceJsonValue(s) {
 
 /* ---- Transform (crypto) nodes ------------------------------------------- */
 // Algorithms a transform node can run. `key` = shows a key/secret field;
-// `enc` = offers a hex/base64 output-encoding choice.
+// `iv` = shows an IV field; `enc` = offers a hex/base64 output-encoding choice.
 const ALGORITHMS = {
   "base64-encode":   { label: "Base64 encode", key: false, enc: false },
   "base64-decode":   { label: "Base64 decode", key: false, enc: false },
@@ -117,6 +117,8 @@ const ALGORITHMS = {
   "sha256":          { label: "SHA-256", key: false, enc: true },
   "sha512":          { label: "SHA-512", key: false, enc: true },
   "hmac-sha256":     { label: "HMAC-SHA256", key: true, enc: true },
+  "aes-cbc-encrypt": { label: "AES-CBC encrypt", key: true, iv: true, enc: true },
+  "aes-cbc-decrypt": { label: "AES-CBC decrypt", key: true, iv: true, enc: true },
   "rsa-sha256-sign": { label: "RSA-SHA256 sign (PEM private key)", key: true, enc: false },
   "rsa-oaep-encrypt":{ label: "RSA-OAEP encrypt (PEM public key)", key: true, enc: false },
 };
@@ -126,6 +128,7 @@ const TRANSFORM_PRESETS = {
   md5: { title: "MD5", algo: "md5" },
   sha: { title: "SHA-256", algo: "sha256" },
   hmac: { title: "HMAC", algo: "hmac-sha256" },
+  aes: { title: "AES", algo: "aes-cbc-encrypt" },
   rsa: { title: "RSA", algo: "rsa-sha256-sign" },
 };
 
@@ -232,7 +235,7 @@ function pemToDer(pem) {
 }
 
 // Apply a transform algorithm. Returns a string (hash/cipher text or decoded text).
-async function applyAlgo(algo, input, key, enc) {
+async function applyAlgo(algo, input, key, enc, iv) {
   switch (algo) {
     case "base64-encode": return bytesToB64(utf8Bytes(input));
     case "base64-decode": return new TextDecoder().decode(b64ToBytes(input));
@@ -243,6 +246,16 @@ async function applyAlgo(algo, input, key, enc) {
     case "hmac-sha256": {
       const k = await crypto.subtle.importKey("raw", utf8Bytes(key), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
       return encodeDigest(await crypto.subtle.sign("HMAC", k, utf8Bytes(input)), enc);
+    }
+    case "aes-cbc-encrypt": {
+      const k = await crypto.subtle.importKey("raw", utf8Bytes(key), { name: "AES-CBC" }, false, ["encrypt"]);
+      const ct = await crypto.subtle.encrypt({ name: "AES-CBC", iv: utf8Bytes(iv) }, k, utf8Bytes(input));
+      return encodeDigest(ct, enc); // hex or base64
+    }
+    case "aes-cbc-decrypt": {
+      const k = await crypto.subtle.importKey("raw", utf8Bytes(key), { name: "AES-CBC" }, false, ["decrypt"]);
+      const pt = await crypto.subtle.decrypt({ name: "AES-CBC", iv: utf8Bytes(iv) }, k, b64ToBytes(input));
+      return new TextDecoder().decode(pt);
     }
     case "rsa-sha256-sign": {
       const k = await crypto.subtle.importKey("pkcs8", pemToDer(key), { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" }, false, ["sign"]);
@@ -313,7 +326,7 @@ function makeTransformNode(presetKey, x, y) {
   const p = TRANSFORM_PRESETS[presetKey] || TRANSFORM_PRESETS.base64;
   return {
     id: uid("n"), kind: "transform",
-    title: p.title, algo: p.algo, key: "", outEncoding: "hex",
+    title: p.title, algo: p.algo, key: "", iv: "", outEncoding: "hex",
     inputs: [{ id: uid("p"), name: "in", value: "" }],
     outputs: [{ id: uid("p"), name: "out" }],
     x, y,
@@ -664,7 +677,17 @@ function buildTransformBody(node, body) {
     body.appendChild(el("div", { class: "section" }, [el("div", { class: "section-title" }, ["Key / secret"]), keyArea]));
   }
 
-  // Output encoding (hash / HMAC).
+  // IV (AES). UTF-8 text; AES-CBC needs 16 bytes.
+  if (meta.iv) {
+    const ivInput = el("input", {
+      class: "body-input", spellcheck: "false", placeholder: "16-byte IV",
+      value: node.iv || "",
+      oninput: (e) => { node.iv = e.target.value; scheduleSave(); },
+    });
+    body.appendChild(el("div", { class: "section" }, [el("div", { class: "section-title" }, ["IV"]), ivInput]));
+  }
+
+  // Output encoding (hash / HMAC / AES encrypt).
   if (meta.enc) {
     const encSel = el("select", {
       class: "enc-select",
@@ -1075,10 +1098,11 @@ async function runTransform(node) {
     : substitute(inPin.value || "", {});
   node.inputResolved[inPin.id] = input;
   const key = substitute(node.key || "", {});
+  const iv = substitute(node.iv || "", {});
 
   const t0 = performance.now();
   try {
-    const out = await applyAlgo(node.algo, input, key, node.outEncoding || "hex");
+    const out = await applyAlgo(node.algo, input, key, node.outEncoding || "hex", iv);
     node.result = { transform: true, body: out, elapsedMs: Math.round(performance.now() - t0) };
     node.outputValues[node.outputs[0].id] = out;
   } catch (err) {

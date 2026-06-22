@@ -33,17 +33,17 @@ This is an ASP.NET Core 10.0 minimal API solution with two projects:
 
 | Layer | Path | Responsibility |
 |-------|------|----------------|
-| Controllers | `Controllers/BlazzPayController.cs` | 4 endpoints: generate QRIS, check payment status, get balance, receive webhook |
+| Controllers | `Controllers/BlazzPayController.cs` | 6 endpoints: generate QRIS, check payment status, get balance, request withdrawal, receive payment webhook, receive withdrawal webhook |
 | Services | `Services/BlazzPayClient.cs` | HttpClient wrapper around the BlazzPay upstream API; caches the access token in-memory with TTL |
-| Crypto | `Services/BlazzPayCrypto.cs` | AES-128-CBC / PKCS7 decryption of QR code payloads |
-| Signature | `Services/BlazzPaySignature.cs` | SHA3-256 webhook signature validation using constant-time comparison |
+| Crypto | `Services/BlazzPayCrypto.cs` | AES-128-CBC / PKCS7 encryption (withdrawal payload) and decryption (QR code payloads); RSA PKCS#1 v1.5 SHA-256 signing (withdrawal request) |
+| Signature | `Services/BlazzPaySignature.cs` | SHA3-256 webhook signature validation (payment + withdrawal callbacks) and RSA withdrawal-request signature generation, using constant-time comparison |
 | Options | `Options/BlazzPayOptions.cs` | Typed configuration bound from `appsettings.json`; validated on startup |
 | Constants | `Constants/BlazzPayStringDefinition.cs` | Status code strings and auth scheme names |
 | Models | `Models/` | C# records used as request/response DTOs |
 
 ### Configuration
 
-`BlazzPayOptions` requires `BaseUrl`, `ClientId`, and `ClientSecret`. `AesKey` and `AesIV` are optional (only needed for QR code decryption). Staging credentials live in `appsettings.json`; `appsettings.Development.json` overrides with placeholders.
+`BlazzPayOptions` requires `BaseUrl`, `ClientId`, and `ClientSecret`. `AesKey` and `AesIV` are optional (needed for QR code decryption and withdrawal payload encryption). `SaltKey` and `PrivateKey` are optional too (needed only for the withdrawal request RSA signature). Staging credentials live in `appsettings.json`; `appsettings.Development.json` overrides with placeholders.
 
 ### Security Patterns
 
