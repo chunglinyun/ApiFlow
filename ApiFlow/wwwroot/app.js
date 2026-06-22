@@ -714,6 +714,15 @@ function buildTransformBody(node, body) {
   ]));
 }
 
+// Returns a data: URI if `s` is a base64 image (data URI or raw base64), else null.
+function imageDataUri(s) {
+  s = (s || "").trim();
+  if (s.startsWith("data:image")) return s;
+  const sig = { "/9j/": "jpeg", "iVBORw0KGgo": "png", "R0lGOD": "gif", "UklGR": "webp" };
+  for (const k in sig) if (s.startsWith(k)) return `data:image/${sig[k]};base64,${s}`;
+  return null;
+}
+
 function buildResult(node) {
   const r = node.result;
   const meta = el("div", { class: "result-meta" });
@@ -731,7 +740,20 @@ function buildResult(node) {
   if (r.error) bodyText = "⚠ " + r.error;
   else if (node.parsedBody !== null && node.parsedBody !== undefined) bodyText = pretty(node.parsedBody);
   else bodyText = r.body || "(empty response)";
-  return el("div", { class: "result" }, [meta, el("pre", { class: "result-body" }, [bodyText])]);
+
+  // Offer an image preview toggle when the output looks like a base64 image.
+  const src = r.error ? null : imageDataUri(r.body);
+  if (src) {
+    meta.appendChild(el("button", {
+      class: "img-toggle", title: "Toggle image preview",
+      text: node.showImage ? "🖼 Text" : "🖼 Image",
+      onclick: () => { node.showImage = !node.showImage; renderAll(); save(); },
+    }));
+  }
+  const view = (src && node.showImage)
+    ? el("img", { class: "result-img", src }) // width:100% in CSS → scales with node frame
+    : el("pre", { class: "result-body" }, [bodyText]);
+  return el("div", { class: "result" }, [meta, view]);
 }
 
 function removePin(node, kind, pinId) {

@@ -353,6 +353,25 @@ textarea.body-input {
 .badge.s3 { color: var(--warn); border-color: var(--warn); }
 .badge.s4, .badge.s5, .badge.s0 { color: var(--danger); border-color: var(--danger); }
 .result-time { color: var(--text-dim); }
+.img-toggle {
+  margin-left: auto;
+  cursor: pointer;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-dim);
+  font-size: 11px;
+  padding: 1px 6px;
+}
+.img-toggle:hover { color: var(--text); }
+.result-img {
+  width: 100%;
+  height: auto;
+  display: block;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-input);
+}
 .result-body {
   background: var(--bg-input);
   border: 1px solid var(--border);
