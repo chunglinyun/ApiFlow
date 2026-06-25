@@ -42,6 +42,8 @@ Each node represents a single API request:
 
 Nodes can be freely dragged, resized, renamed, and deleted.
 
+When a node's output is a base64 image (a `data:image/…` URI or raw PNG/JPEG/GIF/WebP base64), a **🖼 Image / 🖼 Text** toggle appears in the result bar. The preview scales to the node's width — drag the bottom-right resize handle to grow it proportionally.
+
 ### Wires
 
 Drag from a node's right **●** output pin to another node's left **●** input pin to pipe a value.
@@ -64,6 +66,7 @@ Transform nodes apply a crypto or encoding operation before passing a value alon
 | MD5 | hex or base64 output |
 | SHA | SHA-1, SHA-256, SHA-512 — hex or base64 |
 | HMAC | HMAC-SHA256 with a secret key — hex or base64 |
+| AES | AES-CBC encrypt/decrypt with a custom key + IV (Key/IV as UTF-8 text or base64-encoded binary; key 16/24/32 bytes, IV 16 bytes) — hex or base64 output |
 | RSA | RSA-SHA256 sign (PEM private key), RSA-OAEP encrypt (PEM public key) |
 
 All crypto runs in the browser via the [Web Crypto API](https://developer.mozilla.org/en-US/docs/Web/API/Web_Crypto_API) (except MD5, which has a built-in implementation).

@@ -225,6 +225,10 @@ input:focus, select:focus, textarea:focus {
 .node-body { padding: 10px; display: flex; flex-direction: column; gap: 10px; }
 
 .row { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+/* anchor the path's wire-in pin to this line; nowrap keeps it one line tall so
+   the pin (top:50%) stays centered on the path input even with a wire chip present */
+.path-row { position: relative; flex-wrap: nowrap; }
+.path-row .wire-chip { flex-shrink: 0; }
 .method-select { width: 92px; font-weight: 600; }
 .path-input { flex: 1; min-width: 0; }
 

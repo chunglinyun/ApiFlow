@@ -438,10 +438,33 @@ function buildRequestBody(node, body) {
     onchange: (e) => { node.method = e.target.value; renderAll(); save(); },
   }, METHODS.map((m) => el("option", { value: m, ...(m === node.method ? { selected: "selected" } : {}) }, m)));
   const path = el("input", {
-    class: "path-input", spellcheck: "false", placeholder: "/path",
+    class: "path-input", spellcheck: "false", placeholder: "/path  (wire in → use {{name}}, even mid-path)",
     value: node.path, oninput: (e) => { node.path = e.target.value; scheduleSave(); },
   });
-  body.appendChild(el("div", { class: "row" }, [method, path]));
+  // Path is a wire target too: drop a wire here, then click the chip to drop {{name}}
+  // at the cursor — supports mid-path segments like /userinfo/{{userid}}/profile.
+  const pathPin = node.id + ":path";
+  const incoming = wires.find((w) => w.to.nodeId === node.id && w.to.pinId === pathPin);
+  const dot = el("span", { class: "pin in", "data-node": node.id, "data-pin": pathPin });
+  if (incoming) {
+    dot.title = "Click to disconnect this wire";
+    dot.addEventListener("click", () => { wires = wires.filter((w) => w.id !== incoming.id); renderAll(); save(); });
+  }
+  const row = [dot, method, path];
+  if (incoming) {
+    const token = "{{" + (incoming.name || "value") + "}}";
+    const chip = el("span", { class: "wire-chip", title: "Insert " + token + " at the cursor in the path" }, [token]);
+    chip.addEventListener("mousedown", (e) => e.preventDefault()); // keep the path input's cursor
+    chip.addEventListener("click", () => {
+      const start = path.selectionStart ?? path.value.length, end = path.selectionEnd ?? path.value.length;
+      path.value = path.value.slice(0, start) + token + path.value.slice(end);
+      node.path = path.value;
+      path.focus(); path.setSelectionRange(start + token.length, start + token.length);
+      scheduleSave();
+    });
+    row.push(chip);
+  }
+  body.appendChild(el("div", { class: "row path-row" }, row));
 
   body.appendChild(buildHeadersSection(node));
 
@@ -1080,6 +1103,9 @@ async function runNode(node) {
     value: resolveTemplate(node, h, map),
   }));
 
+  // Request-side values, so an output path prefixed "req." can read what we SENT
+  // (e.g. req.client_reference, req.$path) instead of the response.
+  const reqValues = { $path: rawPath, $url: url };
   let body = null;
   if (node.method !== "GET" && node.method !== "HEAD") {
     if (isFormNode(node)) {
@@ -1091,13 +1117,18 @@ async function runNode(node) {
           else { const v = resolveTemplate(node, f, map); node.fieldResolved[f.id] = v; flat.push([f.key, v]); }
         }
       })(node.fields);
+      for (const [k, v] of flat) reqValues[k] = v;
       body = flat.map(([k, v]) => encodeURIComponent(subst(k)) + "=" + encodeURIComponent(v)).join("&");
     } else if (isJsonNode(node)) {
-      body = JSON.stringify(fieldsToJsonObject(node, node.fields || [], map));
+      const obj = fieldsToJsonObject(node, node.fields || [], map);
+      Object.assign(reqValues, obj);
+      body = JSON.stringify(obj);
     } else {
       body = subst(node.body || "");
+      reqValues.$body = body;
     }
   }
+  node.requestValues = reqValues;
 
   try {
     const resp = await fetch("/proxy", {
@@ -1111,7 +1142,9 @@ async function runNode(node) {
     try { parsed = data.body ? JSON.parse(data.body) : null; } catch { parsed = null; }
     node.parsedBody = parsed;
     for (const out of node.outputs) {
-      node.outputValues[out.id] = parsed !== null ? getPath(parsed, out.path) : undefined;
+      node.outputValues[out.id] = (out.path && out.path.startsWith("req."))
+        ? getPath(node.requestValues, out.path.slice(4))
+        : (parsed !== null ? getPath(parsed, out.path) : undefined);
     }
   } catch (err) {
     node.result = { status: 0, error: err.message };
