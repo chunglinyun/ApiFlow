@@ -16,6 +16,9 @@ app.UseMiddleware<RequestLoggingMiddleware>();
 app.UseDefaultFiles();
 app.UseStaticFiles();
 
+// Liveness probe used by the container HEALTHCHECK.
+app.MapGet("/health", () => Results.Ok(new { status = "ok" }));
+
 // POST /proxy — server-side request forwarder.
 //
 // The browser cannot call an arbitrary Base URL directly because of CORS. The UI therefore
@@ -26,7 +29,7 @@ app.UseStaticFiles();
 // local development use as part of this API testing tool. Do not expose it publicly.
 app.MapPost("/proxy", async (ProxyRequest req, IHttpClientFactory httpClientFactory, CancellationToken cancellationToken) =>
 {
-    if (string.IsNullOrWhiteSpace(req.Url) || !Uri.TryCreate(req.Url, UriKind.Absolute, out var uri))
+    if (string.IsNullOrWhiteSpace(req.Url) || Uri.TryCreate(req.Url, UriKind.Absolute, out var uri) == false)
     {
         return Results.BadRequest(new { error = "A valid absolute 'url' is required." });
     }
@@ -35,7 +38,7 @@ app.MapPost("/proxy", async (ProxyRequest req, IHttpClientFactory httpClientFact
     using var request = new HttpRequestMessage(new HttpMethod(method), uri);
 
     var methodAllowsBody = method is not "GET" and not "HEAD";
-    if (methodAllowsBody && !string.IsNullOrEmpty(req.Body))
+    if (methodAllowsBody && string.IsNullOrEmpty(req.Body) == false)
     {
         request.Content = new StringContent(req.Body, Encoding.UTF8);
         // Drop the StringContent default (text/plain) so an explicit Content-Type header wins.
@@ -51,7 +54,7 @@ app.MapPost("/proxy", async (ProxyRequest req, IHttpClientFactory httpClientFact
 
         // Content headers (e.g. Content-Type) are rejected by request.Headers and must live
         // on the content instead — fall through to the content header collection.
-        if (!request.Headers.TryAddWithoutValidation(header.Key, header.Value))
+        if (request.Headers.TryAddWithoutValidation(header.Key, header.Value) == false)
         {
             request.Content?.Headers.TryAddWithoutValidation(header.Key, header.Value);
         }

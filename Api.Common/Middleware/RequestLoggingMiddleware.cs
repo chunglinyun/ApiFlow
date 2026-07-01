@@ -30,15 +30,38 @@ public sealed class RequestLoggingMiddleware
 
         var headers = string.Join(
             Environment.NewLine,
-            context.Request.Headers.Select(header => $"{header.Key}: {header.Value}"));
+            context.Request.Headers.Select(header => $"{header.Key}: {Mask(header.Key, header.Value)}"));
+
+        const int maxBody = 2048;
+        var body = requestBody.Length > maxBody
+            ? requestBody[..maxBody] + $"…[truncated, {requestBody.Length} chars total]"
+            : requestBody;
 
         _logger.LogInformation(
             "Incoming request {Method} {Path}\nHeaders:\n{Headers}\nBody:\n{Body}",
             context.Request.Method,
             context.Request.Path,
             headers,
-            requestBody);
+            body);
 
         await _next(context);
+    }
+
+    // ponytail: substring match on the header key; good enough for log redaction.
+    private static readonly string[] SensitiveKeys = ["authorization", "secret", "token", "key", "cookie", "password"];
+
+    private static string Mask(string key, string? value)
+    {
+        value ??= "";
+        if (SensitiveKeys.Any(s => key.Contains(s, StringComparison.OrdinalIgnoreCase)) == false)
+        {
+            return value;
+        }
+
+        // Reveal first/last 3 chars so the value is verifiable without leaking it.
+        // Short values stay fully masked (too little to hide behind).
+        return value.Length <= 8
+            ? "***"
+            : $"{value[..3]}***{value[^3..]}";
     }
 }

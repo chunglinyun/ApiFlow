@@ -65,11 +65,15 @@ A browser-based visual workflow builder located in `ApiFlow/wwwroot/`. No build 
 | `app.js` | All logic: node/wire state, drag-and-drop, run engine, persistence |
 | `styles.css` | UI styling |
 
+To operate or programmatically build a workflow (data model, JSON schema, run semantics), see the standalone operations guide:
+
+@ApiFlow/AGENT_OPERATIONS.md
+
 ### Key features
 
 - **Nodes** — individual API requests (method + path + headers + key-value body fields)
 - **Wires** — connect an upstream node's output JSON-path to a downstream node's input
-- **Transforms** — Base64 / MD5 / SHA / HMAC / RSA nodes that process wired values
+- **Transforms** — Base64 / MD5 / SHA / HMAC / AES / RSA nodes that process wired values
 - **Generators** — `{{$guid}}`, `{{$now}}`, `{{$timestamp}}` etc., resolved fresh on each Run
 - **Run all** — topological sort + sequential execution via `/proxy` forwarder
 - **Export / Import** — save the entire workflow (nodes + wires + baseUrl) to a local `.json` file and reload it later

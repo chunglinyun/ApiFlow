@@ -1,0 +1,61 @@
+{
+  "version": "1.0",
+  "exportedAt": "2026-06-22T00:00:00.000Z",
+  "baseUrl": "https://apiblazzpay69-stg.blazzpay.com",
+  "nodes": [
+    {
+      "id": "n_token",
+      "kind": "request",
+      "title": "Get Access Token",
+      "method": "POST",
+      "path": "/h2h/v1/authorization/token",
+      "headers": [
+        { "id": "h_ct1", "key": "Content-Type", "value": "application/x-www-form-urlencoded" },
+        { "id": "h_cid", "key": "client-id", "value": "CH2H-2827b67e84f94a7c91a6c97ae7d0dcee1782096688321" },
+        { "id": "h_sec", "key": "client-secret", "value": "3bc0e39a4c61f091453f662f9abcbd435ee323cb8ca0787df28d53ab0c955fe1" }
+      ],
+      "fields": [],
+      "body": "",
+      "inputs": [],
+      "outputs": [
+        { "id": "p_token", "name": "access_token", "path": "access_token" }
+      ],
+      "x": 80,
+      "y": 80
+    },
+    {
+      "id": "n_qris",
+      "kind": "request",
+      "title": "Generate QRIS",
+      "method": "POST",
+      "path": "/h2h/v1/qris/generateQRIS",
+      "headers": [
+        { "id": "h_ct2", "key": "Content-Type", "value": "application/json" },
+        { "id": "h_auth", "key": "Authorization", "value": "Bearer " }
+      ],
+      "fields": [
+        { "id": "f_txn", "key": "TransactionId", "value": "{{$timestamp}}" },
+        { "id": "f_user", "key": "Username", "value": "ultraman001" },
+        { "id": "f_amt", "key": "Amount", "value": "150000" }
+      ],
+      "body": "",
+      "inputs": [],
+      "outputs": [
+        { "id": "p_qrcode", "name": "QRCode", "path": "QRCode" },
+        { "id": "p_ref", "name": "ClientReference", "path": "ClientReference" },
+        { "id": "p_reff", "name": "QRISReffCode", "path": "QRISReffCode" },
+        { "id": "p_exp", "name": "ExpiredUntil", "path": "ExpiredUntil" }
+      ],
+      "x": 560,
+      "y": 80
+    }
+  ],
+  "wires": [
+    {
+      "id": "w_auth",
+      "name": "access_token",
+      "from": { "nodeId": "n_token", "pinId": "p_token" },
+      "to": { "nodeId": "n_qris", "pinId": "h_auth" }
+    }
+  ]
+}

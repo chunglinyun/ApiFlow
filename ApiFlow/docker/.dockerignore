@@ -1,0 +1,10 @@
+**/bin/
+**/obj/
+**/.vs/
+**/.idea/
+**/.git/
+**/*.user
+**/Dockerfile
+**/.dockerignore
+**/README.md
+**/AGENT_OPERATIONS.md
