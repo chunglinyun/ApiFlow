@@ -193,6 +193,7 @@ input:focus, select:focus, textarea:focus {
 .node.transform .node-head { background: linear-gradient(180deg, rgba(37, 194, 160, 0.18), transparent); }
 
 .node-head {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -221,6 +222,13 @@ input:focus, select:focus, textarea:focus {
   padding: 2px 4px;
 }
 .node-del:hover { color: var(--danger); }
+.node-toggle {
+  background: transparent; border: none; color: var(--text-dim);
+  cursor: pointer; font-size: 12px; line-height: 1; padding: 2px 4px;
+}
+.node-toggle:hover { color: var(--accent); }
+.node.disabled { opacity: 0.45; }
+.node.disabled .node-head { background: repeating-linear-gradient(45deg, transparent, transparent 6px, rgba(255,255,255,0.04) 6px, rgba(255,255,255,0.04) 12px); }
 
 .node-body { padding: 10px; display: flex; flex-direction: column; gap: 10px; }
 
@@ -335,6 +343,8 @@ textarea.body-input {
 .pin.in { left: -16px; }
 .pin.linked { background: var(--accent); }
 .pin.in.linked { cursor: not-allowed; box-shadow: 0 0 0 3px rgba(255, 92, 108, 0.25); }
+.pin.flow-pin { border-color: var(--warn); background: var(--bg-node); } /* control-flow, not data */
+.pin.flow-pin:hover { background: var(--warn); }
 
 .pin-resolved {
   font-size: 11px;

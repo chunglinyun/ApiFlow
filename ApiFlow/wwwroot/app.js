@@ -121,6 +121,7 @@ const ALGORITHMS = {
   "aes-cbc-decrypt": { label: "AES-CBC decrypt", key: true, iv: true, enc: true },
   "rsa-sha256-sign": { label: "RSA-SHA256 sign (PEM private key)", key: true, enc: false },
   "rsa-oaep-encrypt":{ label: "RSA-OAEP encrypt (PEM public key)", key: true, enc: false },
+  "delay":           { label: "Delay (wait N seconds)", key: false, enc: false }, // identity transform, waits before passing input through
 };
 // Palette items (dragged in like API clients); each seeds a default algorithm.
 const TRANSFORM_PRESETS = {
@@ -130,6 +131,7 @@ const TRANSFORM_PRESETS = {
   hmac: { title: "HMAC", algo: "hmac-sha256" },
   aes: { title: "AES", algo: "aes-cbc-encrypt" },
   rsa: { title: "RSA", algo: "rsa-sha256-sign" },
+  delay: { title: "Delay", algo: "delay" },
 };
 
 /* Byte / encoding helpers */
@@ -240,6 +242,7 @@ function keyBytes(s, keyEnc) { return keyEnc === "base64" ? b64ToBytes(s) : utf8
 // Apply a transform algorithm. Returns a string (hash/cipher text or decoded text).
 async function applyAlgo(algo, input, key, enc, iv, keyEnc) {
   switch (algo) {
+    case "delay": await new Promise((r) => setTimeout(r, Math.max(0, (parseFloat(key) || 0) * 1000))); return input;
     case "base64-encode": return bytesToB64(utf8Bytes(input));
     case "base64-decode": return new TextDecoder().decode(b64ToBytes(input));
     case "md5": { const hex = md5(input); return enc === "base64" ? bytesToB64(hexToBytes(hex)) : hex; }
@@ -330,7 +333,7 @@ function makeTransformNode(presetKey, x, y) {
   const p = TRANSFORM_PRESETS[presetKey] || TRANSFORM_PRESETS.base64;
   return {
     id: uid("n"), kind: "transform",
-    title: p.title, algo: p.algo, key: "", iv: "", keyEnc: "utf8", outEncoding: "hex",
+    title: p.title, algo: p.algo, key: p.algo === "delay" ? "1" : "", iv: "", keyEnc: "utf8", outEncoding: "hex",
     inputs: [{ id: uid("p"), name: "in", value: "" }],
     outputs: [{ id: uid("p"), name: "out" }],
     x, y,
@@ -378,6 +381,7 @@ function renderNode(node) {
   root.style.left = node.x + "px";
   root.style.top = node.y + "px";
   if (node.width) root.style.width = node.width + "px";
+  if (node.disabled) root.classList.add("disabled");
   if (node.result) {
     if (node.result.running) root.classList.add("running");
     else if (node.result.error || node.result.status === 0 || node.result.status >= 400) root.classList.add("err");
@@ -391,9 +395,13 @@ function renderNode(node) {
   });
   const head = el("div", { class: "node-head" }, [
     title,
+    el("button", { class: "node-toggle", title: node.disabled ? "Enable (include in Run)" : "Disable (skip this Run)", text: node.disabled ? "▷" : "❙❙",
+      onclick: () => { node.disabled = !node.disabled; renderAll(); save(); } }),
     el("button", { class: "node-del", title: "Delete node", text: "✕", onclick: () => deleteNode(node.id) }),
   ]);
   head.addEventListener("pointerdown", (e) => startNodeDrag(e, node, root));
+  if (node.kind === "transform" && node.algo === "delay") attachDelayHeadPins(node, head);
+  else if (node.kind !== "transform") attachFlowPin(node, head);
   root.appendChild(head);
 
   /* Body container — request vs. transform layouts. */
@@ -673,25 +681,37 @@ function buildTransformBody(node, body) {
   }, Object.keys(ALGORITHMS).map((a) => el("option", { value: a, ...(a === node.algo ? { selected: "selected" } : {}) }, ALGORITHMS[a].label)));
   body.appendChild(el("div", { class: "row" }, [algoSel]));
 
-  // Single input pin (wire target) + literal/{{ref}} fallback.
-  const inPin = node.inputs[0];
-  const inDot = el("span", { class: "pin in", "data-node": node.id, "data-pin": inPin.id });
-  const incoming = wires.find((w) => w.to.nodeId === node.id && w.to.pinId === inPin.id);
-  if (incoming) {
-    inDot.title = "Click to disconnect this wire";
-    inDot.addEventListener("click", () => { wires = wires.filter((w) => w.id !== incoming.id); renderAll(); save(); });
+  // Single input pin (wire target) + literal/{{ref}} fallback. Delay has no literal input —
+  // it just passes through — and its pins live on the header (see renderNode), so skip this.
+  if (node.algo !== "delay") {
+    const inPin = node.inputs[0];
+    const inDot = el("span", { class: "pin in", "data-node": node.id, "data-pin": inPin.id });
+    const incoming = wires.find((w) => w.to.nodeId === node.id && w.to.pinId === inPin.id);
+    if (incoming) {
+      inDot.title = "Click to disconnect this wire";
+      inDot.addEventListener("click", () => { wires = wires.filter((w) => w.id !== incoming.id); renderAll(); save(); });
+    }
+    const inResolved = node.inputResolved[inPin.id];
+    body.appendChild(el("div", { class: "section" }, [
+      el("div", { class: "section-title" }, ["Input  ⟨◉ wire-in⟩"]),
+      el("div", { class: "pin-row input" }, [
+        inDot,
+        el("input", { class: "pin-extra", placeholder: incoming ? "(from wire)" : "text or {{ref}}", value: inPin.value, spellcheck: "false",
+          oninput: (e) => { inPin.value = e.target.value; scheduleSave(); } }),
+        (inResolved !== undefined && inResolved !== "")
+          ? el("span", { class: "pin-resolved", title: String(inResolved) }, ["= " + String(inResolved)]) : null,
+      ]),
+    ]));
   }
-  const inResolved = node.inputResolved[inPin.id];
-  body.appendChild(el("div", { class: "section" }, [
-    el("div", { class: "section-title" }, ["Input  ⟨◉ wire-in⟩"]),
-    el("div", { class: "pin-row input" }, [
-      inDot,
-      el("input", { class: "pin-extra", placeholder: incoming ? "(from wire)" : "text or {{ref}}", value: inPin.value, spellcheck: "false",
-        oninput: (e) => { inPin.value = e.target.value; scheduleSave(); } }),
-      (inResolved !== undefined && inResolved !== "")
-        ? el("span", { class: "pin-resolved", title: String(inResolved) }, ["= " + String(inResolved)]) : null,
-    ]),
-  ]));
+
+  // Delay: seconds to wait before passing the input through.
+  if (node.algo === "delay") {
+    const sec = el("input", {
+      class: "path-input", type: "number", min: "0", step: "0.1", placeholder: "seconds",
+      value: node.key || "1", oninput: (e) => { node.key = e.target.value; scheduleSave(); },
+    });
+    body.appendChild(el("div", { class: "section" }, [el("div", { class: "section-title" }, ["Delay (seconds)"]), sec]));
+  }
 
   // Key / secret (HMAC + RSA).
   if (meta.key) {
@@ -731,20 +751,51 @@ function buildTransformBody(node, body) {
     body.appendChild(el("div", { class: "section" }, [el("div", { class: "section-title" }, [encLabel]), encSel]));
   }
 
-  // Single output pin.
-  const outPin = node.outputs[0];
-  const outDot = el("span", { class: "pin out", "data-node": node.id, "data-pin": outPin.id });
+  // Single output pin (delay's is on the header instead — see renderNode).
+  if (node.algo !== "delay") {
+    const outPin = node.outputs[0];
+    const outDot = el("span", { class: "pin out", "data-node": node.id, "data-pin": outPin.id });
+    outDot.addEventListener("pointerdown", (e) => startWireDrag(e, node.id, outPin.id));
+    const outVal = node.outputValues[outPin.id];
+    body.appendChild(el("div", { class: "section" }, [
+      el("div", { class: "section-title" }, ["Output"]),
+      el("div", { class: "pin-row output" }, [
+        el("span", { class: "out-label" }, ["out"]),
+        (outVal !== undefined && outVal !== null && outVal !== "")
+          ? el("span", { class: "pin-resolved", title: String(outVal) }, ["= " + String(outVal)]) : null,
+        outDot,
+      ]),
+    ]));
+  }
+}
+
+// Request nodes get a header flow-in pin: wire a Delay (or any output) here to run this node
+// after it. It's a pure sequencing edge — its {{name}} isn't referenced, so it injects nothing.
+function attachFlowPin(node, head) {
+  const id = node.id + "__flow";
+  const dot = el("span", { class: "pin in head-pin flow-pin", "data-node": node.id, "data-pin": id,
+    title: "Flow-in — connect a Delay/upstream node to run this after it" });
+  const incoming = wires.find((w) => w.to.nodeId === node.id && w.to.pinId === id);
+  if (incoming) {
+    dot.title = "Click to disconnect this flow wire";
+    dot.addEventListener("click", () => { wires = wires.filter((w) => w.id !== incoming.id); renderAll(); save(); });
+  }
+  head.appendChild(dot);
+}
+
+// Delay's wire pins sit on the header so they don't clutter the (now hidden) Input row.
+function attachDelayHeadPins(node, head) {
+  const inPin = node.inputs[0], outPin = node.outputs[0];
+  const inDot = el("span", { class: "pin in head-pin", "data-node": node.id, "data-pin": inPin.id });
+  const incoming = wires.find((w) => w.to.nodeId === node.id && w.to.pinId === inPin.id);
+  if (incoming) {
+    inDot.title = "Click to disconnect this wire";
+    inDot.addEventListener("click", () => { wires = wires.filter((w) => w.id !== incoming.id); renderAll(); save(); });
+  }
+  const outDot = el("span", { class: "pin out head-pin", "data-node": node.id, "data-pin": outPin.id });
   outDot.addEventListener("pointerdown", (e) => startWireDrag(e, node.id, outPin.id));
-  const outVal = node.outputValues[outPin.id];
-  body.appendChild(el("div", { class: "section" }, [
-    el("div", { class: "section-title" }, ["Output"]),
-    el("div", { class: "pin-row output" }, [
-      el("span", { class: "out-label" }, ["out"]),
-      (outVal !== undefined && outVal !== null && outVal !== "")
-        ? el("span", { class: "pin-resolved", title: String(outVal) }, ["= " + String(outVal)]) : null,
-      outDot,
-    ]),
-  ]));
+  head.appendChild(inDot);
+  head.appendChild(outDot);
 }
 
 // Returns a data: URI if `s` is a base64 image (data URI or raw base64), else null.
@@ -850,7 +901,7 @@ function mkPath(d, cls) {
 
 /* ---- Dragging a node ---------------------------------------------------- */
 function startNodeDrag(e, node, root) {
-  if (e.target.closest(".node-title, .node-del")) return; // let inputs/buttons work
+  if (e.target.closest(".node-title, .node-del, .node-toggle, .pin")) return; // let inputs/buttons/pins work
   e.preventDefault();
   root.style.zIndex = 10;
   const startX = e.clientX, startY = e.clientY;
@@ -1191,9 +1242,11 @@ async function runAll() {
   for (const n of nodes) { n.result = null; n.outputValues = {}; n.inputResolved = {}; n.parsedBody = null; }
   renderAll();
 
-  let failures = 0;
+  let failures = 0, ran = 0;
   for (const id of order) {
     const node = byId(id);
+    if (node.disabled) continue; // skipped this run
+    ran++;
     if (node.kind === "transform") await runTransform(node);
     else await runNode(node);
     if (node.result.error || node.result.status === 0 || node.result.status >= 400) failures++;
@@ -1201,7 +1254,7 @@ async function runAll() {
   }
   els.runBtn.disabled = false;
   setStatus(
-    failures ? `Done — ${failures} of ${order.length} failed` : `Done — ${order.length} node(s) OK`,
+    failures ? `Done — ${failures} of ${ran} failed` : `Done — ${ran} node(s) OK`,
     failures ? "err" : "ok");
 }
 
@@ -1255,7 +1308,7 @@ function save() {
       id: n.id, kind: n.kind || "request", title: n.title,
       method: n.method, path: n.path, headers: n.headers, fields: n.fields || [], body: n.body || "",
       algo: n.algo, key: n.key, iv: n.iv, keyEnc: n.keyEnc, outEncoding: n.outEncoding,
-      inputs: n.inputs, outputs: n.outputs, x: n.x, y: n.y, width: n.width,
+      inputs: n.inputs, outputs: n.outputs, x: n.x, y: n.y, width: n.width, disabled: n.disabled,
     })),
     wires,
   };
@@ -1292,7 +1345,7 @@ function exportWorkflow() {
       id: n.id, kind: n.kind || "request", title: n.title,
       method: n.method, path: n.path, headers: n.headers, fields: n.fields || [], body: n.body || "",
       algo: n.algo, key: n.key, iv: n.iv, keyEnc: n.keyEnc, outEncoding: n.outEncoding,
-      inputs: n.inputs, outputs: n.outputs, x: n.x, y: n.y, width: n.width,
+      inputs: n.inputs, outputs: n.outputs, x: n.x, y: n.y, width: n.width, disabled: n.disabled,
     })),
     wires,
   };
