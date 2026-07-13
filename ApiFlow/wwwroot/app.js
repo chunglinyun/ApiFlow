@@ -93,15 +93,17 @@ function isFormNode(node) { return contentTypeOf(node) === FORM_CONTENT_TYPE; }
 function isJsonNode(node) { const ct = contentTypeOf(node); return ct === "" || ct === "application/json"; }
 function isStructuredBody(node) { return isFormNode(node) || isJsonNode(node); }
 
-// Coerce a string field value to a JSON value. Values stay STRINGS by default (so "100" or a
-// long/leading-zero id is sent as a string, matching string-typed APIs); only true/false/null
-// and explicit JSON objects/arrays ({…}/[…]) are parsed into their native types.
+// Coerce a string field value to a JSON value. Plain integers/decimals become numbers (so a
+// payment API gets a numeric `amount`), true/false/null and JSON {…}/[…] parse to their types.
+// ponytail: long (>15-digit) or leading-zero values stay strings to protect ids from precision
+// loss — add a per-field string/number toggle if a specific id ever gets mis-typed.
 function coerceJsonValue(s) {
   if (typeof s !== "string") return s;
   const t = s.trim();
   if (t === "true") return true;
   if (t === "false") return false;
   if (t === "null") return null;
+  if (/^-?(0|[1-9]\d*)(\.\d+)?$/.test(t) && t.replace(/[-.]/g, "").length <= 15) return Number(t);
   if ((t[0] === "{" && t.endsWith("}")) || (t[0] === "[" && t.endsWith("]"))) { try { return JSON.parse(t); } catch { /* keep string */ } }
   return s;
 }
@@ -620,6 +622,10 @@ function buildFieldRows(node, fields) {
           oninput: (e) => { f.value = e.target.value; scheduleSave(); } }),
         incoming ? wireChipEl(f, incoming) : null,
         resolvedEl(shown),
+        // JSON only: force a numeric-looking value to be sent as a string (e.g. account numbers).
+        isJsonNode(node) ? el("button", { class: "mini-btn str-toggle" + (f.str ? " on" : ""),
+          title: f.str ? 'Sent as string "…" — click for auto-typing' : "Auto-typed (numbers → numbers) — click to force string",
+          text: "str", onclick: () => { f.str = !f.str; renderAll(); save(); } }) : null,
         el("button", { class: "del-row", title: "Remove field", text: "×",
           onclick: () => removeFieldDeep(node, f.id) }),
       ]));
@@ -818,10 +824,21 @@ function toCurl(node) {
   return parts.join(" \\\n  ");
 }
 function copyText(text, label) {
-  navigator.clipboard.writeText(text).then(
-    () => setStatus(label + " copied", "ok"),
-    () => setStatus("Copy failed (clipboard blocked)", "err"),
-  );
+  const ok = () => setStatus(label + " copied", "ok");
+  // execCommand fallback works without the clipboard permission (runs on the button's click gesture).
+  const fallback = () => {
+    const ta = document.createElement("textarea");
+    ta.value = text; ta.style.position = "fixed"; ta.style.opacity = "0";
+    document.body.appendChild(ta); ta.focus(); ta.select();
+    let done = false; try { done = document.execCommand("copy"); } catch (e) { /* ignore */ }
+    document.body.removeChild(ta);
+    done ? ok() : setStatus("Copy failed", "err");
+  };
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(ok, fallback);
+  } else {
+    fallback();
+  }
 }
 
 function buildResult(node) {
@@ -1099,6 +1116,7 @@ function resolveTemplate(node, item, map) {
 // JSON variant: when the whole value is exactly the wire token (or empty + wired), return the
 // native value so objects/numbers keep their type; otherwise substitute + coerce like above.
 function resolveTemplateJson(node, item, map) {
+  if (item.str) return resolveTemplate(node, item, map); // forced string — never coerce to number
   const w = incomingWire(node.id, item.id);
   if (w) {
     const name = w.name || "value";
@@ -1309,7 +1327,7 @@ function insertToken(token) {
 function normalizeFields(arr) {
   return (arr || []).map((f) => (f.kind === "object"
     ? { id: f.id || uid("f"), key: f.key, kind: "object", fields: normalizeFields(f.fields) }
-    : { id: f.id || uid("f"), key: f.key, value: f.value }));
+    : { id: f.id || uid("f"), key: f.key, value: f.value, str: f.str }));
 }
 function migrateFields(n) {
   if (Array.isArray(n.fields)) return normalizeFields(n.fields);

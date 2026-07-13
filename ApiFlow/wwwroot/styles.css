@@ -369,6 +369,8 @@ textarea.body-input {
 .result-time { color: var(--text-dim); }
 .result-copy { margin-left: auto; } /* push to the response's top-right */
 .node-copy { flex: 0 0 auto; } /* keep cURL button compact in the header */
+.str-toggle { flex: 0 0 auto; font-size: 10px; padding: 1px 5px; }
+.str-toggle.on { color: var(--accent); border-color: var(--accent); font-weight: 700; }
 .img-toggle {
   margin-left: auto;
   cursor: pointer;
