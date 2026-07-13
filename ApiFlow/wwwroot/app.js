@@ -395,6 +395,8 @@ function renderNode(node) {
   });
   const head = el("div", { class: "node-head" }, [
     title,
+    node.kind !== "transform" && el("button", { class: "mini-btn node-copy", title: "Copy this request as cURL", text: "cURL",
+      onclick: () => copyText(toCurl(node), "cURL") }),
     el("button", { class: "node-toggle", title: node.disabled ? "Enable (include in Run)" : "Disable (skip this Run)", text: node.disabled ? "▷" : "❙❙",
       onclick: () => { node.disabled = !node.disabled; renderAll(); save(); } }),
     el("button", { class: "node-del", title: "Delete node", text: "✕", onclick: () => deleteNode(node.id) }),
@@ -807,6 +809,21 @@ function imageDataUri(s) {
   return null;
 }
 
+function shellQuote(s) { return "'" + String(s).replace(/'/g, "'\\''") + "'"; }
+function toCurl(node) {
+  const { method, url, headers, body } = composeRequest(node);
+  const parts = [`curl -X ${method} ${shellQuote(url)}`];
+  for (const h of headers) parts.push(`-H ${shellQuote(h.key + ": " + h.value)}`);
+  if (body != null && body !== "") parts.push(`--data ${shellQuote(body)}`);
+  return parts.join(" \\\n  ");
+}
+function copyText(text, label) {
+  navigator.clipboard.writeText(text).then(
+    () => setStatus(label + " copied", "ok"),
+    () => setStatus("Copy failed (clipboard blocked)", "err"),
+  );
+}
+
 function buildResult(node) {
   const r = node.result;
   const meta = el("div", { class: "result-meta" });
@@ -824,6 +841,9 @@ function buildResult(node) {
   if (r.error) bodyText = "⚠ " + r.error;
   else if (node.parsedBody !== null && node.parsedBody !== undefined) bodyText = pretty(node.parsedBody);
   else bodyText = r.body || "(empty response)";
+
+  if (!r.running) meta.appendChild(el("button", { class: "mini-btn result-copy", title: "Copy response", text: "⧉ Copy",
+    onclick: () => copyText(bodyText, "Response") }));
 
   // Offer an image preview toggle when the output looks like a base64 image.
   const src = r.error ? null : imageDataUri(r.body);
@@ -1135,16 +1155,11 @@ function removeFieldDeep(node, id) {
   save();
 }
 
-async function runNode(node) {
-  node.result = { running: true };
-  node.outputValues = {};
-  node.inputResolved = {};
-  renderAll();
-
-  // Substitution map = { wireName: upstreamValue } for every wire entering this node.
+// Build the outgoing request (url, headers, body) with all substitutions applied.
+// Shared by runNode and the copy-cURL button so they never drift.
+function composeRequest(node) {
   const map = wireMapFor(node);
   node.fieldResolved = {};
-
   const subst = (s) => substitute(s, map);
   const baseUrl = (els.baseUrl.value || "").trim().replace(/\/+$/, "");
   const rawPath = subst(node.path || "");
@@ -1154,8 +1169,7 @@ async function runNode(node) {
     value: resolveTemplate(node, h, map),
   }));
 
-  // Request-side values, so an output path prefixed "req." can read what we SENT
-  // (e.g. req.client_reference, req.$path) instead of the response.
+  // Request-side values, so an output path prefixed "req." can read what we SENT.
   const reqValues = { $path: rawPath, $url: url };
   let body = null;
   if (node.method !== "GET" && node.method !== "HEAD") {
@@ -1180,12 +1194,22 @@ async function runNode(node) {
     }
   }
   node.requestValues = reqValues;
+  return { method: node.method, url, headers, body };
+}
+
+async function runNode(node) {
+  node.result = { running: true };
+  node.outputValues = {};
+  node.inputResolved = {};
+  renderAll();
+
+  const { method, url, headers, body } = composeRequest(node);
 
   try {
     const resp = await fetch("/proxy", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ method: node.method, url, headers, body }),
+      body: JSON.stringify({ method, url, headers, body }),
     });
     const data = await resp.json();
     node.result = { status: data.status, reason: data.reasonPhrase, elapsedMs: data.elapsedMs, body: data.body, error: data.error };

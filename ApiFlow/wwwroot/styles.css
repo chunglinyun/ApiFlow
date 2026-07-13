@@ -367,6 +367,8 @@ textarea.body-input {
 .badge.s3 { color: var(--warn); border-color: var(--warn); }
 .badge.s4, .badge.s5, .badge.s0 { color: var(--danger); border-color: var(--danger); }
 .result-time { color: var(--text-dim); }
+.result-copy { margin-left: auto; } /* push to the response's top-right */
+.node-copy { flex: 0 0 auto; } /* keep cURL button compact in the header */
 .img-toggle {
   margin-left: auto;
   cursor: pointer;
