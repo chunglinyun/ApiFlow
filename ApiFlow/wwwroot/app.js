@@ -399,6 +399,7 @@ function renderNode(node) {
     title,
     node.kind !== "transform" && el("button", { class: "mini-btn node-copy", title: "Copy this request as cURL", text: "cURL",
       onclick: () => copyText(toCurl(node), "cURL") }),
+    el("button", { class: "node-toggle", title: "Run only this node", text: "▶", onclick: () => runOne(node) }),
     el("button", { class: "node-toggle", title: node.disabled ? "Enable (include in Run)" : "Disable (skip this Run)", text: node.disabled ? "▷" : "❙❙",
       onclick: () => { node.disabled = !node.disabled; renderAll(); save(); } }),
     el("button", { class: "node-del", title: "Delete node", text: "✕", onclick: () => deleteNode(node.id) }),
@@ -1252,10 +1253,20 @@ async function runTransform(node) {
   renderAll();
 
   const inPin = node.inputs[0];
-  // Wired input overrides the literal; literals still allow generators like {{$guid}}.
-  const input = hasIncoming(node.id, inPin.id)
-    ? coerce(incomingValue(node.id, inPin.id))
-    : substitute(inPin.value || "", {});
+  // Wired input: if the literal references the wire's {{name}}, substitute into it so
+  // suffixes/prefixes survive (e.g. "{{agg_ref_id}}::2026-07-16"); otherwise the raw
+  // wired value replaces the literal. Unwired literals still allow generators like {{$guid}}.
+  const w = incomingWire(node.id, inPin.id);
+  let input;
+  if (w) {
+    const name = w.name || "value";
+    const map = wireMapFor(node);
+    input = new RegExp("\\{\\{\\s*" + escapeRe(name) + "\\s*\\}\\}").test(inPin.value || "")
+      ? substitute(inPin.value || "", map)
+      : coerce(map[name]);
+  } else {
+    input = substitute(inPin.value || "", {});
+  }
   node.inputResolved[inPin.id] = input;
   const key = substitute(node.key || "", {});
   const iv = substitute(node.iv || "", {});
@@ -1268,6 +1279,19 @@ async function runTransform(node) {
   } catch (err) {
     node.result = { transform: true, error: err.message, elapsedMs: Math.round(performance.now() - t0) };
   }
+}
+
+// Run a single node in isolation. Upstream nodes are NOT re-run — wired values come
+// from whatever their last run left in outputValues (empty → resolves to blank).
+// ponytail: no dependency walk; use Run all if you need fresh upstream values.
+async function runOne(node) {
+  setStatus(`Running ${node.title}…`, "");
+  node.result = null; node.outputValues = {}; node.inputResolved = {}; node.parsedBody = null;
+  if (node.kind === "transform") await runTransform(node);
+  else await runNode(node);
+  renderAll();
+  const failed = node.result.error || node.result.status === 0 || node.result.status >= 400;
+  setStatus(failed ? `${node.title} failed` : `${node.title} OK`, failed ? "err" : "ok");
 }
 
 async function runAll() {
