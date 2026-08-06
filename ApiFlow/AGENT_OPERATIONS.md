@@ -35,6 +35,7 @@ Two kinds, distinguished by `kind`. Shared fields:
 | `title` | display name |
 | `x`, `y` | canvas position in px |
 | `width` | optional, clamped 260–820 px |
+| `disabled` | `true` = skipped by **Run all** (still runnable on its own via the node's ▶) |
 | `inputs` | array of pins `{ id, name, value }` |
 | `outputs` | array of pins `{ id, name, path? }` |
 
@@ -47,27 +48,43 @@ Two kinds, distinguished by `kind`. Shared fields:
 | `method` | `GET`/`POST`/`PUT`/`PATCH`/`DELETE`/`HEAD` |
 | `path` | appended to `baseUrl`; may contain `{{name}}` tokens anywhere (incl. mid-path, e.g. `/userinfo/{{userId}}/profile`) resolved from wires entering the node |
 | `headers` | `[{ id, key, value }]` |
-| `fields` | body key/value editor: `[{ id, key, value }]` |
+| `fields` | body key/value editor: `[{ id, key, value, str? }]`, or a nested object `{ id, key, kind: "object", fields: [...] }` (recurses; in a form body a nested object is sent JSON-stringified) |
 | `body` | raw body string (used for non-JSON/form content types) |
 | `outputs` | each output's `path` is a dot-path into the JSON **response** (e.g. `data.token`), or prefixed `req.` to read what was **sent** (e.g. `req.client_reference`, `req.$path`, `req.$url`, `req.$body`) |
 
-The path is also a wire target: its pin id is the node id plus `:path` (e.g. node `"n2"` → pin `"n2:path"`). Wire an upstream output into it, then reference the wire's `{{name}}` in the path string.
+**JSON field typing.** In a JSON body a value is auto-typed — `"12"` is sent as the number `12`, and a field whose value is *exactly* the wire token keeps the upstream native type (object/number). Set `"str": true` on the field to force a JSON string (account numbers, ids with leading zeros). Form and raw bodies are always text, so `str` is ignored there.
+
+**Two pin ids you don't declare in `inputs`:**
+
+- **Path pin** — node id plus `:path` (node `"n2"` → pin `"n2:path"`). Wire an upstream output into it, then reference the wire's `{{name}}` in the path string.
+- **Flow-in pin** — node id plus `__flow` (node `"n2"` → pin `"n2__flow"`). A pure sequencing edge: it injects no value, it only makes this node run after the upstream one. Typically fed by a `delay` node.
 
 ### `kind: "transform"`
 
 | Field | Notes |
 |---|---|
 | `algo` | one of the algorithm keys below |
-| `key` | secret / PEM key (HMAC, AES, RSA) |
+| `key` | secret / PEM key (HMAC, AES, RSA); for `delay` it holds the **seconds to wait** |
 | `iv` | AES IV (16 bytes after decoding) |
 | `keyEnc` | AES Key/IV encoding: `"utf8"` (default) or `"base64"` (for base64-encoded binary keys, e.g. BlazzPay) |
-| `outEncoding` | `"hex"` or `"base64"` (hash/HMAC/AES output; AES-decrypt input encoding) |
+| `outEncoding` | `"hex"` (default) or `"base64"` — output encoding for hash/HMAC/encrypt, **input** ciphertext encoding for every `*-decrypt` algo |
 | `inputs` | single pin `in`; `value` is a literal or `{{ref}}` used when no wire is connected |
 | `outputs` | single pin `out` |
 
 Algorithm keys: `base64-encode`, `base64-decode`, `md5`, `sha1`, `sha256`, `sha512`,
 `hmac-sha256`, `aes-cbc-encrypt`, `aes-cbc-decrypt`, `rsa-sha256-sign`, `rsa-oaep-encrypt`,
-`rsa-oaep-decrypt`.
+`rsa-oaep-decrypt`, `delay`.
+
+RSA keys are PEM (`pkcs8` private / `spki` public). Note the encrypt algos emit
+base64 while `outEncoding` defaults to `hex`, so a decrypt node fed by one must be
+switched to `"base64"` explicitly. There is no PKCS#1 v1.5 decrypt — the browser Web
+Crypto API doesn't support it.
+
+**How the input value is resolved** (matters when you want a prefix/suffix):
+
+- no wire → the literal `value`, with generators resolved;
+- wired **and** the literal contains that wire's `{{name}}` → substitution, so `"{{ref}}::2026-07-16"` works;
+- wired and the literal doesn't mention it → the wired value **replaces** the literal.
 
 ## Wire object
 
@@ -85,14 +102,40 @@ Algorithm keys: `base64-encode`, `base64-decode`, `md5`, `sha1`, `sha256`, `sha5
 - A wire into a **transform input** replaces the literal.
 - A wire into the **path pin** doesn't append; place the `{{name}}` token yourself
   anywhere in the path string (the run engine substitutes it).
+- A wire into the **flow-in pin** carries no value at all — ordering only.
 - One output pin may fan out to multiple inputs.
 
 ## Run semantics
 
 **▶ Run all** topologically sorts nodes by wire dependencies and fires them in order
-via the server-side `POST /proxy` forwarder. Generators (`{{$guid}}`, `{{$now}}`,
-`{{$timestamp}}`, `{{$date}}`, `{{$time}}`, `{{$randomInt}}`) resolve fresh per run.
-Cycles abort the run.
+via the server-side `POST /proxy` forwarder. `disabled` nodes are skipped. Cycles
+abort the run. The banner reports `Done — N node(s) OK` / `Done — M of N failed`.
+
+**▶ on a node header** runs that node alone. Upstream nodes are **not** re-run —
+wired values come from whatever their last run left in `outputValues` (never run →
+blank). Use it to retry one failed call; use Run all when upstream values must be
+fresh (expired token, new id).
+
+Generators (`{{$guid}}`, `{{$uuid}}`, `{{$now}}`, `{{$timestamp}}`, `{{$date}}`,
+`{{$time}}`, `{{$randomInt}}`) resolve fresh on **every occurrence**, every run — two
+nodes that must share one generated id will get different values. Bake a literal, or
+generate it in one node's body and wire that node's `req.<field>` output into the other.
+
+## Reading results
+
+Results are **not** persisted — Run all leaves them in memory only. `app.js` is a
+classic script, so from the page's main world `nodes`, `wires`, `runAll()`,
+`runOne(node)`, `toCurl(node)`, `renderAll()` and `save()` are top-level globals:
+
+```js
+nodes.map(n => ({ title: n.title, status: n.result?.status, err: n.result?.error,
+                  body: n.result?.body, out: n.outputValues }))
+```
+
+From an isolated world (e.g. some browser-automation tools) those bindings aren't
+visible — fall back to `document.querySelector('.node[data-node="<id>"]').innerText`.
+Each node also has a **cURL** button (the exact composed request) and a **⧉ Copy**
+button on its result bar.
 
 ## Image preview
 
@@ -102,6 +145,7 @@ The `<img>` is `width:100%`, so the node's resize handle scales it proportionall
 
 ## DOM hooks (only if you must touch the live page)
 
-- Nodes: `.node[data-node="<id>"]`; pins: `.pin[data-node][data-pin]`.
-- Global state lives in `nodes` / `wires` arrays in `app.js`; `renderAll()` redraws,
-  `save()` persists. Prefer Import over poking these.
+- Nodes: `.node[data-node="<id>"]`; pins: `.pin[data-node][data-pin]`. A node carries
+  `ok` / `err` / `running` / `disabled` classes reflecting its state.
+- The `nodes` / `wires` globals can be replaced directly, then `renderAll(); save();`
+  — but prefer Import over poking these.

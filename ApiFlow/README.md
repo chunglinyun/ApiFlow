@@ -92,7 +92,7 @@ Click a value field to focus it, then click a generator button in the sidebar to
 | `application/x-www-form-urlencoded` | Field editor → serialised to a form-encoded string |
 | anything else | Raw text box |
 
-Field values are sent as **strings** by default. The exceptions are `true`, `false`, `null`, and values that are valid JSON objects or arrays (`{…}` / `[…]`), which are coerced to their native types.
+In a JSON body, field values are auto-typed: `true` / `false` / `null`, numbers (up to 15 digits), and valid JSON objects or arrays (`{…}` / `[…]`) are sent as their native types; everything else is a string. A field wired straight from an upstream output keeps that value's original type. Click the **str** button on a field to force it to a string — needed for numeric-looking values that must stay text (account numbers, ids with leading zeros).
 
 Use the **+ obj** button to nest an object inside a field (e.g. `amount → { value, currency }`).
 
