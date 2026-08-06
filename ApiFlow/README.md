@@ -42,6 +42,15 @@ Each node represents a single API request:
 
 Nodes can be freely dragged, resized, renamed, and deleted.
 
+### JSON Payload Nodes
+
+**{ } JSON payload** (palette, top) builds a JSON object from the same field editor as a request body, but sends nothing. Use it when a whole payload has to be signed or encrypted before it goes anywhere. It has two output pins:
+
+- **json** — the object itself. Wired into another node's JSON body field it stays an object (numbers stay numbers).
+- **text** — `{"key":"value",…}` as a string. Wire this into an AES / RSA / HMAC transform to process the entire payload.
+
+The key order in **text** is the field order in the editor — reorder the fields if the API signs a specific ordering.
+
 When a node's output is a base64 image (a `data:image/…` URI or raw PNG/JPEG/GIF/WebP base64), a **🖼 Image / 🖼 Text** toggle appears in the result bar. The preview scales to the node's width — drag the bottom-right resize handle to grow it proportionally.
 
 ### Wires

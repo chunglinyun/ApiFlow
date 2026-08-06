@@ -26,12 +26,12 @@ Export/Import file shape:
 
 ## Node object
 
-Two kinds, distinguished by `kind`. Shared fields:
+Three kinds, distinguished by `kind`. Shared fields:
 
 | Field | Notes |
 |---|---|
 | `id` | unique string, e.g. `"n3"`. Wires reference it. |
-| `kind` | `"request"` (default) or `"transform"` |
+| `kind` | `"request"` (default), `"transform"`, or `"json"` |
 | `title` | display name |
 | `x`, `y` | canvas position in px |
 | `width` | optional, clamped 260–820 px |
@@ -58,6 +58,32 @@ Two kinds, distinguished by `kind`. Shared fields:
 
 - **Path pin** — node id plus `:path` (node `"n2"` → pin `"n2:path"`). Wire an upstream output into it, then reference the wire's `{{name}}` in the path string.
 - **Flow-in pin** — node id plus `__flow` (node `"n2"` → pin `"n2__flow"`). A pure sequencing edge: it injects no value, it only makes this node run after the upstream one. Typically fed by a `delay` node.
+
+### `kind: "json"`
+
+A JSON payload builder that sends nothing — it exists so a whole object can be signed
+or encrypted. Same `fields` editor and typing rules as a JSON request body (nested
+`kind:"object"`, `str`, wires into field values), `headers: []`, `inputs: []`, and
+**two fixed outputs** so the shape is explicit:
+
+| Output pin `name` | Value |
+|---|---|
+| `json` | the native object — wire into another node's JSON body field and it stays an object/number |
+| `text` | `JSON.stringify(obj)` — the exact string a transform will hash/encrypt |
+
+```json
+{ "id": "n5", "kind": "json", "title": "Payload", "headers": [], "inputs": [],
+  "fields": [{ "id": "f1", "key": "amount", "value": "1000" },
+             { "id": "f2", "key": "account", "value": "0912345678", "str": true }],
+  "outputs": [{ "id": "p10", "name": "json" }, { "id": "p11", "name": "text" }],
+  "x": 60, "y": 60 }
+```
+
+Wire `text` → an `aes-cbc-encrypt` / `rsa-sha256-sign` transform to process the whole
+payload. (Wiring `json` into a transform gives the same bytes — a transform coerces an
+object input with `JSON.stringify` — but `text` says what you mean.) Key order in the
+string is the field order in the editor; if the upstream API signs a canonical
+ordering, order the fields to match.
 
 ### `kind: "transform"`
 

@@ -352,6 +352,25 @@ function makeTransformNode(presetKey, x, y) {
   };
 }
 
+// JSON payload node: builds an object with the same field editor as a request body,
+// but sends nothing. Two outputs so the shape is explicit rather than guessed:
+//   json → the native object (keeps types when wired into another JSON body field)
+//   text → JSON.stringify(obj), i.e. the exact bytes to hand a crypto transform.
+function makeJsonNode(x, y) {
+  return {
+    id: uid("n"), kind: "json", title: "JSON payload",
+    headers: [], // no Content-Type ⇒ isJsonNode() true ⇒ fields get JSON typing + the str toggle
+    fields: [{ id: uid("f"), key: "", value: "" }],
+    inputs: [],
+    outputs: [{ id: uid("p"), name: "json" }, { id: uid("p"), name: "text" }],
+    x, y,
+    result: null,
+    parsedBody: null,
+    outputValues: {},
+    inputResolved: {},
+  };
+}
+
 function spawnXY() {
   const wrap = els.canvasWrap;
   const x = wrap.scrollLeft + 70 + (spawnCount % 5) * 26;
@@ -370,6 +389,13 @@ function addNode(presetKey) {
 function addTransform(presetKey) {
   const { x, y } = spawnXY();
   nodes.push(makeTransformNode(presetKey, x, y));
+  renderAll();
+  save();
+}
+
+function addJsonNode() {
+  const { x, y } = spawnXY();
+  nodes.push(makeJsonNode(x, y));
   renderAll();
   save();
 }
@@ -403,7 +429,7 @@ function renderNode(node) {
   });
   const head = el("div", { class: "node-head" }, [
     title,
-    node.kind !== "transform" && el("button", { class: "mini-btn node-copy", title: "Copy this request as cURL", text: "cURL",
+    node.kind !== "transform" && node.kind !== "json" && el("button", { class: "mini-btn node-copy", title: "Copy this request as cURL", text: "cURL",
       onclick: () => copyText(toCurl(node), "cURL") }),
     el("button", { class: "node-toggle", title: "Run only this node", text: "▶", onclick: () => runOne(node) }),
     el("button", { class: "node-toggle", title: node.disabled ? "Enable (include in Run)" : "Disable (skip this Run)", text: node.disabled ? "▷" : "❙❙",
@@ -418,6 +444,7 @@ function renderNode(node) {
   /* Body container — request vs. transform layouts. */
   const body = el("div", { class: "node-body" });
   if (node.kind === "transform") buildTransformBody(node, body);
+  else if (node.kind === "json") buildJsonBody(node, body);
   else buildRequestBody(node, body);
 
   if (node.result) body.appendChild(buildResult(node));
@@ -582,7 +609,7 @@ function buildFieldsBody(node) {
   const form = isFormNode(node);
   return el("div", { class: "section" }, [
     el("div", { class: "section-title" }, [
-      form ? "Body fields  ⟨◉ → form-urlencoded⟩" : "Body fields  ⟨◉ → JSON⟩",
+      node.kind === "json" ? "JSON fields  ⟨◉ → object⟩" : form ? "Body fields  ⟨◉ → form-urlencoded⟩" : "Body fields  ⟨◉ → JSON⟩",
       el("button", { class: "mini-btn", text: "+ field",
         onclick: () => { node.fields.push({ id: uid("f"), key: "", value: "" }); renderAll(); save(); } }),
       el("button", { class: "mini-btn", text: "+ obj", title: "Add a nested object field",
@@ -642,6 +669,28 @@ function buildFieldRows(node, fields) {
 }
 
 // Raw text body — used when Content-Type isn't JSON or form (text/plain, xml, octet-stream…).
+// JSON payload node: the field editor plus its two fixed output pins.
+function buildJsonBody(node, body) {
+  body.appendChild(buildFieldsBody(node));
+
+  const titles = {
+    json: "Native object — wired into a JSON body field it stays an object/number",
+    text: "JSON.stringify text — wire this into AES/RSA/HMAC to encrypt the whole payload",
+  };
+  const rows = node.outputs.map((pin) => {
+    const dot = el("span", { class: "pin out", "data-node": node.id, "data-pin": pin.id });
+    dot.addEventListener("pointerdown", (e) => startWireDrag(e, node.id, pin.id));
+    const val = node.outputValues[pin.id];
+    return el("div", { class: "pin-row output" }, [
+      el("span", { class: "out-label", title: titles[pin.name] || "" }, [pin.name]),
+      (val !== undefined && val !== null)
+        ? el("span", { class: "pin-resolved", title: coerce(val) }, ["= " + coerce(val)]) : null,
+      dot,
+    ]);
+  });
+  body.appendChild(el("div", { class: "section" }, [el("div", { class: "section-title" }, ["Output"])].concat(rows)));
+}
+
 function buildRawBody(node) {
   const ta = el("textarea", {
     class: "body-input", spellcheck: "false", placeholder: "raw request body",
@@ -1287,6 +1336,19 @@ async function runTransform(node) {
   }
 }
 
+// JSON payload node: no request, just build the object from the fields and expose both shapes.
+function runJsonNode(node) {
+  node.outputValues = {};
+  node.inputResolved = {};
+  node.fieldResolved = {};
+  const obj = fieldsToJsonObject(node, node.fields || [], wireMapFor(node));
+  const text = JSON.stringify(obj);
+  node.parsedBody = obj;
+  node.outputValues[node.outputs[0].id] = obj;   // json — native
+  node.outputValues[node.outputs[1].id] = text;  // text — exactly what a transform will hash/encrypt
+  node.result = { transform: true, body: text, elapsedMs: 0 };
+}
+
 // Run a single node in isolation. Upstream nodes are NOT re-run — wired values come
 // from whatever their last run left in outputValues (empty → resolves to blank).
 // ponytail: no dependency walk; use Run all if you need fresh upstream values.
@@ -1294,6 +1356,7 @@ async function runOne(node) {
   setStatus(`Running ${node.title}…`, "");
   node.result = null; node.outputValues = {}; node.inputResolved = {}; node.parsedBody = null;
   if (node.kind === "transform") await runTransform(node);
+  else if (node.kind === "json") runJsonNode(node);
   else await runNode(node);
   renderAll();
   const failed = node.result.error || node.result.status === 0 || node.result.status >= 400;
@@ -1320,6 +1383,7 @@ async function runAll() {
     if (node.disabled) continue; // skipped this run
     ran++;
     if (node.kind === "transform") await runTransform(node);
+    else if (node.kind === "json") runJsonNode(node);
     else await runNode(node);
     if (node.result.error || node.result.status === 0 || node.result.status >= 400) failures++;
     renderAll();
@@ -1519,6 +1583,7 @@ function init() {
   document.querySelectorAll(".transform-item").forEach((btn) => {
     btn.addEventListener("click", () => addTransform(btn.getAttribute("data-transform")));
   });
+  document.getElementById("addJsonBtn").addEventListener("click", addJsonNode);
 
   // Remember the last focused value field so generators can target it; redraw wires since a
   // focused input grows to a full-width line (shifting pin positions).
