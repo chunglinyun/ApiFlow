@@ -66,7 +66,8 @@ The path is also a wire target: its pin id is the node id plus `:path` (e.g. nod
 | `outputs` | single pin `out` |
 
 Algorithm keys: `base64-encode`, `base64-decode`, `md5`, `sha1`, `sha256`, `sha512`,
-`hmac-sha256`, `aes-cbc-encrypt`, `aes-cbc-decrypt`, `rsa-sha256-sign`, `rsa-oaep-encrypt`.
+`hmac-sha256`, `aes-cbc-encrypt`, `aes-cbc-decrypt`, `rsa-sha256-sign`, `rsa-oaep-encrypt`,
+`rsa-oaep-decrypt`.
 
 ## Wire object
 

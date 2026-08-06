@@ -123,6 +123,7 @@ const ALGORITHMS = {
   "aes-cbc-decrypt": { label: "AES-CBC decrypt", key: true, iv: true, enc: true },
   "rsa-sha256-sign": { label: "RSA-SHA256 sign (PEM private key)", key: true, enc: false },
   "rsa-oaep-encrypt":{ label: "RSA-OAEP encrypt (PEM public key)", key: true, enc: false },
+  "rsa-oaep-decrypt":{ label: "RSA-OAEP decrypt (PEM private key)", key: true, enc: true },
   "delay":           { label: "Delay (wait N seconds)", key: false, enc: false }, // identity transform, waits before passing input through
 };
 // Palette items (dragged in like API clients); each seeds a default algorithm.
@@ -273,6 +274,11 @@ async function applyAlgo(algo, input, key, enc, iv, keyEnc) {
     case "rsa-oaep-encrypt": {
       const k = await crypto.subtle.importKey("spki", pemToDer(key), { name: "RSA-OAEP", hash: "SHA-256" }, false, ["encrypt"]);
       return bytesToB64(new Uint8Array(await crypto.subtle.encrypt({ name: "RSA-OAEP" }, k, utf8Bytes(input))));
+    }
+    case "rsa-oaep-decrypt": {
+      const k = await crypto.subtle.importKey("pkcs8", pemToDer(key), { name: "RSA-OAEP", hash: "SHA-256" }, false, ["decrypt"]);
+      const ct = enc === "hex" ? hexToBytes(input.trim()) : b64ToBytes(input);
+      return new TextDecoder().decode(await crypto.subtle.decrypt({ name: "RSA-OAEP" }, k, ct));
     }
     default: throw new Error("Unknown algorithm: " + algo);
   }
@@ -756,7 +762,7 @@ function buildTransformBody(node, body) {
       class: "enc-select",
       onchange: (e) => { node.outEncoding = e.target.value; save(); },
     }, ["hex", "base64"].map((x) => el("option", { value: x, ...((node.outEncoding || "hex") === x ? { selected: "selected" } : {}) }, x)));
-    const encLabel = node.algo === "aes-cbc-decrypt" ? "Input encoding" : "Output encoding";
+    const encLabel = node.algo.endsWith("-decrypt") ? "Input encoding" : "Output encoding";
     body.appendChild(el("div", { class: "section" }, [el("div", { class: "section-title" }, [encLabel]), encSel]));
   }
 
