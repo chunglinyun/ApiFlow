@@ -242,8 +242,34 @@ function pemToDer(pem) {
 // Key/IV bytes from text: base64-decoded (binary keys) or raw UTF-8.
 function keyBytes(s, keyEnc) { return keyEnc === "base64" ? b64ToBytes(s) : utf8Bytes(s); }
 
+// Same, but say which knob is wrong — a bad length here is the most common AES failure
+// and the browser's own "invalid key length" doesn't mention the encoding that caused it.
+function aesKey(s, enc) {
+  const b = keyBytes(s, enc);
+  if (![16, 24, 32].includes(b.length)) {
+    throw new Error(`AES key decodes to ${b.length} bytes as ${enc || "utf8"} — needs 16/24/32. Try the other Key encoding.`);
+  }
+  return b;
+}
+function aesIv(s, enc) {
+  const b = keyBytes(s, enc);
+  if (b.length !== 16) throw new Error(`AES IV decodes to ${b.length} bytes as ${enc || "utf8"} — needs 16. Try the other IV encoding.`);
+  return b;
+}
+
+// Algorithms that don't need the Web Crypto API (see the secure-context guard below).
+const NO_SUBTLE_ALGOS = new Set(["delay", "base64-encode", "base64-decode", "md5"]);
+
 // Apply a transform algorithm. Returns a string (hash/cipher text or decoded text).
-async function applyAlgo(algo, input, key, enc, iv, keyEnc) {
+// `ivEnc` defaults to `keyEnc` — most APIs encode key and IV the same way, but not all.
+async function applyAlgo(algo, input, key, enc, iv, keyEnc, ivEnc) {
+  ivEnc = ivEnc || keyEnc;
+  // crypto.subtle only exists in a secure context: https, or http on localhost/127.0.0.1.
+  // Served from a plain-http LAN address (or file://) it is undefined and every hash/HMAC/
+  // AES/RSA algorithm dies with "Cannot read properties of undefined (reading 'importKey')".
+  if (!crypto.subtle && !NO_SUBTLE_ALGOS.has(algo)) {
+    throw new Error(`Web Crypto is unavailable on this origin (${location.origin}) — ${algo} needs a secure context. Open ApiFlow over https://, or via http://localhost:<port>, or allow this origin in chrome://flags/#unsafely-treat-insecure-origin-as-secure.`);
+  }
   switch (algo) {
     case "delay": await new Promise((r) => setTimeout(r, Math.max(0, (parseFloat(key) || 0) * 1000))); return input;
     case "base64-encode": return bytesToB64(utf8Bytes(input));
@@ -257,14 +283,14 @@ async function applyAlgo(algo, input, key, enc, iv, keyEnc) {
       return encodeDigest(await crypto.subtle.sign("HMAC", k, utf8Bytes(input)), enc);
     }
     case "aes-cbc-encrypt": {
-      const k = await crypto.subtle.importKey("raw", keyBytes(key, keyEnc), { name: "AES-CBC" }, false, ["encrypt"]);
-      const ct = await crypto.subtle.encrypt({ name: "AES-CBC", iv: keyBytes(iv, keyEnc) }, k, utf8Bytes(input));
+      const k = await crypto.subtle.importKey("raw", aesKey(key, keyEnc), { name: "AES-CBC" }, false, ["encrypt"]);
+      const ct = await crypto.subtle.encrypt({ name: "AES-CBC", iv: aesIv(iv, ivEnc) }, k, utf8Bytes(input));
       return encodeDigest(ct, enc); // hex or base64
     }
     case "aes-cbc-decrypt": {
-      const k = await crypto.subtle.importKey("raw", keyBytes(key, keyEnc), { name: "AES-CBC" }, false, ["decrypt"]);
+      const k = await crypto.subtle.importKey("raw", aesKey(key, keyEnc), { name: "AES-CBC" }, false, ["decrypt"]);
       const ct = enc === "hex" ? hexToBytes(input.trim()) : b64ToBytes(input);
-      const pt = await crypto.subtle.decrypt({ name: "AES-CBC", iv: keyBytes(iv, keyEnc) }, k, ct);
+      const pt = await crypto.subtle.decrypt({ name: "AES-CBC", iv: aesIv(iv, ivEnc) }, k, ct);
       return new TextDecoder().decode(pt);
     }
     case "rsa-sha256-sign": {
@@ -788,7 +814,7 @@ function buildTransformBody(node, body) {
     body.appendChild(el("div", { class: "section" }, [el("div", { class: "section-title" }, ["Key / secret"]), keyArea]));
   }
 
-  // IV (AES). Decoded per the Key/IV encoding below; AES-CBC needs 16 bytes.
+  // IV (AES). Decoded per its own encoding below; AES-CBC needs 16 bytes.
   if (meta.iv) {
     const ivInput = el("input", {
       class: "body-input", spellcheck: "false", placeholder: "16-byte IV",
@@ -797,12 +823,20 @@ function buildTransformBody(node, body) {
     });
     body.appendChild(el("div", { class: "section" }, [el("div", { class: "section-title" }, ["IV"]), ivInput]));
 
-    // Key/IV encoding: UTF-8 text vs. base64-encoded binary (e.g. BlazzPay's 16-byte keys).
-    const keyEncSel = el("select", {
+    // UTF-8 text vs. base64-encoded binary. Key and IV get their own selector because APIs
+    // mix them (e.g. a base64 32-byte key with a plain 16-char IV); ivEnc defaults to keyEnc.
+    const encSelect = (get, set) => el("select", {
       class: "enc-select",
-      onchange: (e) => { node.keyEnc = e.target.value; save(); },
-    }, ["utf8", "base64"].map((x) => el("option", { value: x, ...((node.keyEnc || "utf8") === x ? { selected: "selected" } : {}) }, x)));
-    body.appendChild(el("div", { class: "section" }, [el("div", { class: "section-title" }, ["Key / IV encoding"]), keyEncSel]));
+      onchange: (e) => { set(e.target.value); save(); },
+    }, ["utf8", "base64"].map((x) => el("option", { value: x, ...(get() === x ? { selected: "selected" } : {}) }, x)));
+    body.appendChild(el("div", { class: "section" }, [
+      el("div", { class: "section-title" }, ["Key encoding"]),
+      encSelect(() => node.keyEnc || "utf8", (v) => { node.keyEnc = v; }),
+    ]));
+    body.appendChild(el("div", { class: "section" }, [
+      el("div", { class: "section-title" }, ["IV encoding"]),
+      encSelect(() => node.ivEnc || node.keyEnc || "utf8", (v) => { node.ivEnc = v; }),
+    ]));
   }
 
   // Output encoding (hash / HMAC / AES encrypt).
@@ -1328,7 +1362,7 @@ async function runTransform(node) {
 
   const t0 = performance.now();
   try {
-    const out = await applyAlgo(node.algo, input, key, node.outEncoding || "hex", iv, node.keyEnc || "utf8");
+    const out = await applyAlgo(node.algo, input, key, node.outEncoding || "hex", iv, node.keyEnc || "utf8", node.ivEnc || node.keyEnc || "utf8");
     node.result = { transform: true, body: out, elapsedMs: Math.round(performance.now() - t0) };
     node.outputValues[node.outputs[0].id] = out;
   } catch (err) {
@@ -1443,7 +1477,7 @@ function save() {
     nodes: nodes.map((n) => ({
       id: n.id, kind: n.kind || "request", title: n.title,
       method: n.method, path: n.path, headers: n.headers, fields: n.fields || [], body: n.body || "",
-      algo: n.algo, key: n.key, iv: n.iv, keyEnc: n.keyEnc, outEncoding: n.outEncoding,
+      algo: n.algo, key: n.key, iv: n.iv, keyEnc: n.keyEnc, ivEnc: n.ivEnc, outEncoding: n.outEncoding,
       inputs: n.inputs, outputs: n.outputs, x: n.x, y: n.y, width: n.width, disabled: n.disabled,
     })),
     wires,
@@ -1480,7 +1514,7 @@ function exportWorkflow() {
     nodes: nodes.map((n) => ({
       id: n.id, kind: n.kind || "request", title: n.title,
       method: n.method, path: n.path, headers: n.headers, fields: n.fields || [], body: n.body || "",
-      algo: n.algo, key: n.key, iv: n.iv, keyEnc: n.keyEnc, outEncoding: n.outEncoding,
+      algo: n.algo, key: n.key, iv: n.iv, keyEnc: n.keyEnc, ivEnc: n.ivEnc, outEncoding: n.outEncoding,
       inputs: n.inputs, outputs: n.outputs, x: n.x, y: n.y, width: n.width, disabled: n.disabled,
     })),
     wires,

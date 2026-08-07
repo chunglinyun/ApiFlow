@@ -92,7 +92,8 @@ ordering, order the fields to match.
 | `algo` | one of the algorithm keys below |
 | `key` | secret / PEM key (HMAC, AES, RSA); for `delay` it holds the **seconds to wait** |
 | `iv` | AES IV (16 bytes after decoding) |
-| `keyEnc` | AES Key/IV encoding: `"utf8"` (default) or `"base64"` (for base64-encoded binary keys, e.g. BlazzPay) |
+| `keyEnc` | how `key` is decoded: `"utf8"` (default) or `"base64"` (base64-encoded binary keys) |
+| `ivEnc` | same for `iv`; **defaults to `keyEnc`**. Set it when an API mixes them (base64 32-byte key + plain 16-char IV) |
 | `outEncoding` | `"hex"` (default) or `"base64"` — output encoding for hash/HMAC/encrypt, **input** ciphertext encoding for every `*-decrypt` algo |
 | `inputs` | single pin `in`; `value` is a literal or `{{ref}}` used when no wire is connected |
 | `outputs` | single pin `out` |

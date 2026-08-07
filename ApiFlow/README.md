@@ -75,10 +75,12 @@ Transform nodes apply a crypto or encoding operation before passing a value alon
 | MD5 | hex or base64 output |
 | SHA | SHA-1, SHA-256, SHA-512 — hex or base64 |
 | HMAC | HMAC-SHA256 with a secret key — hex or base64 |
-| AES | AES-CBC encrypt/decrypt with a custom key + IV (Key/IV as UTF-8 text or base64-encoded binary; key 16/24/32 bytes, IV 16 bytes) — hex or base64 output |
+| AES | AES-CBC encrypt/decrypt with a custom key + IV (key and IV each have their own UTF-8 / base64 selector; key must decode to 16/24/32 bytes, IV to 16) — hex or base64 output |
 | RSA | RSA-SHA256 sign (PEM private key), RSA-OAEP encrypt (PEM public key), RSA-OAEP decrypt (PEM private key, hex or base64 input) |
 
-All crypto runs in the browser via the [Web Crypto API](https://developer.mozilla.org/en-US/docs/Web/API/Web_Crypto_API) (except MD5, which has a built-in implementation).
+All crypto runs in the browser via the [Web Crypto API](https://developer.mozilla.org/en-US/docs/Web/API/Web_Crypto_API) (except MD5, Base64 and Delay, which need no crypto).
+
+⚠ **Web Crypto only exists in a secure context.** Served from a plain-HTTP LAN address (e.g. `http://10.20.26.158:8098`) or from `file://`, `crypto.subtle` is undefined and every SHA / HMAC / AES / RSA node fails. Open ApiFlow over `https://`, or via `http://localhost:<port>`, or allow the origin in `chrome://flags/#unsafely-treat-insecure-origin-as-secure`.
 
 ### Value Generators
 
