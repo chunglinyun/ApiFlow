@@ -99,8 +99,13 @@ ordering, order the fields to match.
 | `outputs` | single pin `out` |
 
 Algorithm keys: `base64-encode`, `base64-decode`, `md5`, `sha1`, `sha256`, `sha512`,
-`hmac-sha256`, `aes-cbc-encrypt`, `aes-cbc-decrypt`, `rsa-sha256-sign`, `rsa-oaep-encrypt`,
-`rsa-oaep-decrypt`, `delay`.
+`hmac-sha256`, `aes-cbc-encrypt`, `aes-cbc-decrypt`, `aes-gcm-encrypt`, `aes-gcm-decrypt`,
+`rsa-sha256-sign`, `rsa-oaep-encrypt`, `rsa-oaep-decrypt`, `delay`.
+
+AES-CBC needs a 16-byte IV; AES-GCM takes a nonce of any length (12 bytes is the norm)
+in the same `iv` field. GCM output is **ciphertext‖128-bit tag** — the Web Crypto /
+Java / Go / Python default layout — and decrypt expects the tag appended the same way.
+No AAD support.
 
 RSA keys are PEM (`pkcs8` private / `spki` public). Note the encrypt algos emit
 base64 while `outEncoding` defaults to `hex`, so a decrypt node fed by one must be

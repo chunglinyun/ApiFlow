@@ -121,6 +121,8 @@ const ALGORITHMS = {
   "hmac-sha256":     { label: "HMAC-SHA256", key: true, enc: true },
   "aes-cbc-encrypt": { label: "AES-CBC encrypt", key: true, iv: true, enc: true },
   "aes-cbc-decrypt": { label: "AES-CBC decrypt", key: true, iv: true, enc: true },
+  "aes-gcm-encrypt": { label: "AES-GCM encrypt", key: true, iv: true, enc: true },
+  "aes-gcm-decrypt": { label: "AES-GCM decrypt", key: true, iv: true, enc: true },
   "rsa-sha256-sign": { label: "RSA-SHA256 sign (PEM private key)", key: true, enc: false },
   "rsa-oaep-encrypt":{ label: "RSA-OAEP encrypt (PEM public key)", key: true, enc: false },
   "rsa-oaep-decrypt":{ label: "RSA-OAEP decrypt (PEM private key)", key: true, enc: true },
@@ -256,6 +258,12 @@ function aesIv(s, enc) {
   if (b.length !== 16) throw new Error(`AES IV decodes to ${b.length} bytes as ${enc || "utf8"} — needs 16. Try the other IV encoding.`);
   return b;
 }
+// GCM takes a nonce of any length (12 bytes is the norm), so only an empty one is certainly wrong.
+function gcmIv(s, enc) {
+  const b = keyBytes(s, enc);
+  if (!b.length) throw new Error("AES-GCM needs a nonce/IV (usually 12 bytes).");
+  return b;
+}
 
 // Algorithms that don't need the Web Crypto API (see the secure-context guard below).
 const NO_SUBTLE_ALGOS = new Set(["delay", "base64-encode", "base64-decode", "md5"]);
@@ -291,6 +299,21 @@ async function applyAlgo(algo, input, key, enc, iv, keyEnc, ivEnc) {
       const k = await crypto.subtle.importKey("raw", aesKey(key, keyEnc), { name: "AES-CBC" }, false, ["decrypt"]);
       const ct = enc === "hex" ? hexToBytes(input.trim()) : b64ToBytes(input);
       const pt = await crypto.subtle.decrypt({ name: "AES-CBC", iv: aesIv(iv, ivEnc) }, k, ct);
+      return new TextDecoder().decode(pt);
+    }
+    // GCM output/input is ciphertext‖tag, the Web Crypto (and Java/Go/Python default) layout.
+    // ponytail: 128-bit tag, no AAD — add options if an API ever asks for something else.
+    case "aes-gcm-encrypt": {
+      const k = await crypto.subtle.importKey("raw", aesKey(key, keyEnc), { name: "AES-GCM" }, false, ["encrypt"]);
+      const ct = await crypto.subtle.encrypt({ name: "AES-GCM", iv: gcmIv(iv, ivEnc), tagLength: 128 }, k, utf8Bytes(input));
+      return encodeDigest(ct, enc);
+    }
+    case "aes-gcm-decrypt": {
+      const k = await crypto.subtle.importKey("raw", aesKey(key, keyEnc), { name: "AES-GCM" }, false, ["decrypt"]);
+      const ct = enc === "hex" ? hexToBytes(input.trim()) : b64ToBytes(input);
+      // A failed tag check throws an OperationError with an empty message — say something useful.
+      const pt = await crypto.subtle.decrypt({ name: "AES-GCM", iv: gcmIv(iv, ivEnc), tagLength: 128 }, k, ct)
+        .catch(() => { throw new Error("AES-GCM decrypt failed — wrong key/nonce, truncated tag, or the input encoding doesn't match the ciphertext."); });
       return new TextDecoder().decode(pt);
     }
     case "rsa-sha256-sign": {
@@ -817,7 +840,7 @@ function buildTransformBody(node, body) {
   // IV (AES). Decoded per its own encoding below; AES-CBC needs 16 bytes.
   if (meta.iv) {
     const ivInput = el("input", {
-      class: "body-input", spellcheck: "false", placeholder: "16-byte IV",
+      class: "body-input", spellcheck: "false", placeholder: node.algo.startsWith("aes-gcm") ? "12-byte nonce" : "16-byte IV",
       value: node.iv || "",
       oninput: (e) => { node.iv = e.target.value; scheduleSave(); },
     });

@@ -75,7 +75,7 @@ Transform nodes apply a crypto or encoding operation before passing a value alon
 | MD5 | hex or base64 output |
 | SHA | SHA-1, SHA-256, SHA-512 — hex or base64 |
 | HMAC | HMAC-SHA256 with a secret key — hex or base64 |
-| AES | AES-CBC encrypt/decrypt with a custom key + IV (key and IV each have their own UTF-8 / base64 selector; key must decode to 16/24/32 bytes, IV to 16) — hex or base64 output |
+| AES | AES-CBC and AES-GCM encrypt/decrypt with a custom key + IV (key and IV each have their own UTF-8 / base64 selector; key must decode to 16/24/32 bytes, a CBC IV to 16, a GCM nonce is usually 12) — hex or base64 output. GCM output is ciphertext‖128-bit tag, no AAD. |
 | RSA | RSA-SHA256 sign (PEM private key), RSA-OAEP encrypt (PEM public key), RSA-OAEP decrypt (PEM private key, hex or base64 input) |
 
 All crypto runs in the browser via the [Web Crypto API](https://developer.mozilla.org/en-US/docs/Web/API/Web_Crypto_API) (except MD5, Base64 and Delay, which need no crypto).
