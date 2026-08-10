@@ -127,6 +127,7 @@ const ALGORITHMS = {
   "rsa-oaep-encrypt":{ label: "RSA-OAEP encrypt (PEM public key)", key: true, enc: false },
   "rsa-oaep-decrypt":{ label: "RSA-OAEP decrypt (PEM private key)", key: true, enc: true },
   "delay":           { label: "Delay (wait N seconds)", key: false, enc: false }, // identity transform, waits before passing input through
+  "text":            { label: "Text (pass through)", key: false, enc: false },   // literal holder: bake one {{$guid}}/{{$timestamp}} and fan it out
 };
 // Palette items (dragged in like API clients); each seeds a default algorithm.
 const TRANSFORM_PRESETS = {
@@ -137,6 +138,7 @@ const TRANSFORM_PRESETS = {
   aes: { title: "AES", algo: "aes-cbc-encrypt" },
   rsa: { title: "RSA", algo: "rsa-sha256-sign" },
   delay: { title: "Delay", algo: "delay" },
+  text: { title: "Value", algo: "text" },
 };
 
 /* Byte / encoding helpers */
@@ -266,7 +268,7 @@ function gcmIv(s, enc) {
 }
 
 // Algorithms that don't need the Web Crypto API (see the secure-context guard below).
-const NO_SUBTLE_ALGOS = new Set(["delay", "base64-encode", "base64-decode", "md5"]);
+const NO_SUBTLE_ALGOS = new Set(["delay", "text", "base64-encode", "base64-decode", "md5"]);
 
 // Apply a transform algorithm. Returns a string (hash/cipher text or decoded text).
 // `ivEnc` defaults to `keyEnc` — most APIs encode key and IV the same way, but not all.
@@ -280,6 +282,7 @@ async function applyAlgo(algo, input, key, enc, iv, keyEnc, ivEnc) {
   }
   switch (algo) {
     case "delay": await new Promise((r) => setTimeout(r, Math.max(0, (parseFloat(key) || 0) * 1000))); return input;
+    case "text": return input; // generators in the literal already resolved once, in runTransform
     case "base64-encode": return bytesToB64(utf8Bytes(input));
     case "base64-decode": return new TextDecoder().decode(b64ToBytes(input));
     case "md5": { const hex = md5(input); return enc === "base64" ? bytesToB64(hexToBytes(hex)) : hex; }

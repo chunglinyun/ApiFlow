@@ -100,7 +100,11 @@ ordering, order the fields to match.
 
 Algorithm keys: `base64-encode`, `base64-decode`, `md5`, `sha1`, `sha256`, `sha512`,
 `hmac-sha256`, `aes-cbc-encrypt`, `aes-cbc-decrypt`, `aes-gcm-encrypt`, `aes-gcm-decrypt`,
-`rsa-sha256-sign`, `rsa-oaep-encrypt`, `rsa-oaep-decrypt`, `delay`.
+`rsa-sha256-sign`, `rsa-oaep-encrypt`, `rsa-oaep-decrypt`, `delay`, `text`.
+
+`text` is a pass-through: whatever its input resolves to comes straight back out.
+Put a generator in its literal (`value: "{{$guid}}"`) and it resolves **once per run**,
+so every node wired from its `out` pin shares the same guid/timestamp. Palette: **Value**.
 
 AES-CBC needs a 16-byte IV; AES-GCM takes a nonce of any length (12 bytes is the norm)
 in the same `iv` field. GCM output is **ciphertext‖128-bit tag** — the Web Crypto /
@@ -150,8 +154,8 @@ fresh (expired token, new id).
 
 Generators (`{{$guid}}`, `{{$uuid}}`, `{{$now}}`, `{{$timestamp}}`, `{{$date}}`,
 `{{$time}}`, `{{$randomInt}}`) resolve fresh on **every occurrence**, every run — two
-nodes that must share one generated id will get different values. Bake a literal, or
-generate it in one node's body and wire that node's `req.<field>` output into the other.
+nodes that must share one generated id will get different values. Put the generator in a
+`text` (**Value**) node and wire its `out` into every consumer — one resolve, one value.
 
 ## Reading results
 
