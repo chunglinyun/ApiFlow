@@ -157,6 +157,9 @@ Generators (`{{$guid}}`, `{{$uuid}}`, `{{$now}}`, `{{$timestamp}}`, `{{$date}}`,
 nodes that must share one generated id will get different values. Put the generator in a
 `text` (**Value**) node and wire its `out` into every consumer — one resolve, one value.
 
+Escape tokens `{{$n}}`, `{{$r}}`, `{{$crlf}}`, `{{$t}}`, `{{$sp}}` resolve the same way and
+are the only way to get a real newline/tab into a value — the editors are single-line inputs.
+
 ## Reading results
 
 Results are **not** persisted — Run all leaves them in memory only. `app.js` is a

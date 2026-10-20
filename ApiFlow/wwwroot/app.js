@@ -81,6 +81,13 @@ const GENERATORS = {
   $date: () => new Date().toISOString().slice(0, 10),
   $time: () => new Date().toTimeString().slice(0, 8),
   $randomInt: () => String(Math.floor(Math.random() * 1e9)),
+  // Escape sequences: value fields are single-line inputs, so these are the only way to put
+  // a real newline/tab into a header, body field or transform literal.
+  $n: () => "\n",
+  $r: () => "\r",
+  $crlf: () => "\r\n",
+  $t: () => "\t",
+  $sp: () => " ",
 };
 
 /* Effective Content-Type for a node (lower-cased, without parameters). */
